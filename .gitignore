@@ -1,0 +1,8 @@
+# Rust build artifacts
+/target
+
+# Demo / extraction outputs (derived from real sessions = potential PII; never commit)
+demo-out/
+*.clean.jsonl
+*.transcript.md
+*.summary.json
