@@ -257,3 +257,31 @@ agent-jsonl-compact-rs.zip
 ```
 
 ZIP には Rust 実装、README、作業書、テスト fixture、統合テストを含めています。
+
+## 9. 現リポジトリ統合メモ（2026-06-10）
+
+初期提出時は ZIP 前提の作業書だったが、現在は独立 Git リポジトリ
+`/home/inaho-omen/Project/agent-jsonl-compact` として運用する。
+
+現行の正本は次のとおり。
+
+| 項目 | 現行値 |
+|---|---|
+| GitHub | `git@github.com:yuki-inaho/agent-jsonl-compact.git` |
+| crate name | `agent-jsonl-compact` |
+| CLI binary | `target/release/agent-jsonl-compact` |
+| install path example | `~/.local/bin/agent-jsonl-compact` |
+| integration user | `/home/inaho-omen/Project/slack-knowledge-rag` の `just extract-session` / `just inspect-session` |
+
+`justfile`、README、Cargo manifest、CLI help、統合先リポジトリの `.envrc` は
+`agent-jsonl-compact` 名で統一する。旧名 `session-jsonl-compact` は使用しない。
+
+現在の開発環境では Rust/Cargo が利用可能であり、最終検証は次で行う。
+
+```bash
+just check
+just demo
+cargo build --release
+```
+
+`demo-out/` と `target/` は生成物であり、Git 管理対象にしない。
