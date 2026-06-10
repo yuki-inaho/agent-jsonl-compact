@@ -1,4 +1,4 @@
-# session-jsonl-compact
+# agent-jsonl-compact
 
 OpenAI Codex CLI rollout JSONL と Anthropic Claude Code transcript JSONL を自動判定し、会話・途中過程だけを compact JSONL、Markdown、summary JSON に抽出する Rust CLI です。
 
@@ -18,13 +18,13 @@ cargo build --release
 生成されるバイナリは次です。
 
 ```bash
-target/release/session-jsonl-compact
+target/release/agent-jsonl-compact
 ```
 
 単一バイナリとして配置する場合は、このファイルを任意の PATH 配下へコピーしてください。
 
 ```bash
-install -m 0755 target/release/session-jsonl-compact ~/.local/bin/session-jsonl-compact
+install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
 ```
 
 Linux で libc 依存を避けたい場合は、環境に musl target を追加したうえで次を実行します。
@@ -37,11 +37,11 @@ cargo build --release --target x86_64-unknown-linux-musl
 ## Usage
 
 ```bash
-session-jsonl-compact -i <path/to/session.jsonl> -o <out_dir>
+agent-jsonl-compact -i <path/to/session.jsonl> -o <out_dir>
 
-session-jsonl-compact -i <path/to/session.jsonl> --stats
+agent-jsonl-compact -i <path/to/session.jsonl> --stats
 
-session-jsonl-compact \
+agent-jsonl-compact \
   -i ~/.codex/sessions/2026/06/07/rollout-xxx.jsonl \
   -o temp/session_extracts \
   --msg-chars 4000 \

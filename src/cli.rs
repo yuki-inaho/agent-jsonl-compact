@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Parser)]
 #[command(
-    name = "session-jsonl-compact",
+    name = "agent-jsonl-compact",
     about = "Codex CLI / Claude Code session JSONL を compact JSONL・Markdown・summary JSON へ抽出します。"
 )]
 pub struct Cli {

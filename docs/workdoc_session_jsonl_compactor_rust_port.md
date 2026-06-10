@@ -2,7 +2,7 @@
 
 作成日: 2026-06-09  
 対象リポジトリ: `tomato-slack-notion-knowledge-rag-main`  
-提出実装: `session-jsonl-compact` Rust CLI
+提出実装: `agent-jsonl-compact` Rust CLI
 
 ## 1. 目的
 
@@ -58,10 +58,10 @@ justfile の extract-session / inspect-session タスク
 Rust の独立 binary crate として実装します。
 
 ```text
-session-jsonl-compact-rs/
+agent-jsonl-compact-rs/
   Cargo.toml
   README.md
-  docs/workdoc_session_jsonl_compactor_rust_port.md
+  docs/workdoc_agent_jsonl_compactor_rust_port.md
   scripts/build-release.sh
   src/
     main.rs
@@ -93,8 +93,8 @@ session-jsonl-compact-rs/
 既存 Python スクリプトの CLI を概ね維持します。
 
 ```bash
-session-jsonl-compact -i <session.jsonl> -o <out_dir>
-session-jsonl-compact -i <session.jsonl> --stats
+agent-jsonl-compact -i <session.jsonl> -o <out_dir>
+agent-jsonl-compact -i <session.jsonl> --stats
 ```
 
 主な option は次です。
@@ -193,13 +193,13 @@ cargo build --release
 生成物は次です。
 
 ```text
-target/release/session-jsonl-compact
+target/release/agent-jsonl-compact
 ```
 
 配置例です。
 
 ```bash
-install -m 0755 target/release/session-jsonl-compact ~/.local/bin/session-jsonl-compact
+install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
 ```
 
 Linux でより単体配布に近づける場合は、musl target を使います。
@@ -231,7 +231,7 @@ cargo test
 |---|---:|---|
 | 移植対象の所在を特定している | 達成 | `skills/session-transcript-extractor/scripts/extract_session_jsonl.py` を移植対象として特定。 |
 | 移植対象の処理単位を整理している | 達成 | stage0 から stage4 を Rust module へ対応付け。 |
-| Rust binary crate として独立実装している | 達成 | `session-jsonl-compact` として `Cargo.toml`、`src/main.rs`、各 module を作成。 |
+| Rust binary crate として独立実装している | 達成 | `agent-jsonl-compact` として `Cargo.toml`、`src/main.rs`、各 module を作成。 |
 | 既存 CLI option の主要機能を維持している | 達成 | `--format`、`--channel`、`--msg-chars`、`--out-chars`、`--elide-outputs`、`--stats` 等を実装。 |
 | Codex / Claude Code の自動判定を実装している | 達成 | `src/detect.rs` に実装。 |
 | Codex / Claude Code の正規化 event 抽出を実装している | 達成 | `src/classify.rs` に実装。 |
@@ -239,7 +239,7 @@ cargo test
 | 単体バイナリ化手順を文書化している | 達成 | README と本作業書に build / install 手順を記載。 |
 | テスト fixture と統合テストを同梱している | 達成 | `tests/fixtures` と `tests/integration.rs` を作成。 |
 | 実データを提出物に含めていない | 達成 | 合成 fixture のみ同梱。 |
-| ZIP として提出できる | 達成 | `session-jsonl-compact-rs.zip` として梱包。 |
+| ZIP として提出できる | 達成 | `agent-jsonl-compact-rs.zip` として梱包。 |
 
 ### 検証上の制約
 
@@ -253,7 +253,7 @@ cargo build --release
 ## 8. 提出物
 
 ```text
-session-jsonl-compact-rs.zip
+agent-jsonl-compact-rs.zip
 ```
 
 ZIP には Rust 実装、README、作業書、テスト fixture、統合テストを含めています。

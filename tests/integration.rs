@@ -1,5 +1,5 @@
-use session_jsonl_compact::cli::{Channel, Cli, OutputFormat, SessionFormat};
-use session_jsonl_compact::{run, RunOutcome};
+use agent_jsonl_compact::cli::{Channel, Cli, OutputFormat, SessionFormat};
+use agent_jsonl_compact::{run, RunOutcome};
 use std::fs;
 use std::path::PathBuf;
 

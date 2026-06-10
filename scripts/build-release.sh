@@ -4,4 +4,4 @@ set -euo pipefail
 cargo test
 cargo build --release
 
-echo "built: target/release/session-jsonl-compact"
+echo "built: target/release/agent-jsonl-compact"
