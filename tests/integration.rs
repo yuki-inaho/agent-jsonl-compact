@@ -1,5 +1,5 @@
 use agent_jsonl_compact::cli::{Channel, Cli, OutputFormat, SessionFormat};
-use agent_jsonl_compact::{run, RunOutcome};
+use agent_jsonl_compact::{install_skills_into, run, RunOutcome};
 use std::fs;
 use std::path::PathBuf;
 
@@ -12,7 +12,8 @@ fn fixture(name: &str) -> PathBuf {
 
 fn base_cli(input: PathBuf, out_dir: PathBuf, name: &str) -> Cli {
     Cli {
-        input,
+        command: None,
+        input: Some(input),
         out_dir: Some(out_dir),
         name: Some(name.to_string()),
         format: SessionFormat::Auto,
@@ -70,6 +71,38 @@ fn extracts_claude_sample() {
 
     let clean = fs::read_to_string(tmp.path().join("claude.clean.jsonl")).unwrap();
     assert!(!clean.contains("cc_meta"));
+}
+
+#[test]
+fn install_skills_writes_skill_into_both_agents() {
+    let home = tempfile::tempdir().unwrap();
+    // 両エージェントの home を用意(無いと skip されるため)。
+    fs::create_dir_all(home.path().join(".claude")).unwrap();
+    fs::create_dir_all(home.path().join(".codex")).unwrap();
+
+    let report = install_skills_into(home.path(), false, false).unwrap();
+    assert_eq!(report.written.len(), 2);
+
+    for agent in [".claude", ".codex"] {
+        let skill = home
+            .path()
+            .join(agent)
+            .join("skills/agent-jsonl-compact-reader/SKILL.md");
+        let body = fs::read_to_string(&skill).unwrap();
+        assert!(body.contains("name: agent-jsonl-compact-reader"));
+    }
+}
+
+#[test]
+fn install_skills_skips_absent_agent_home_unless_explicit() {
+    let home = tempfile::tempdir().unwrap();
+    // .codex のみ用意。.claude は存在しないので skip される。
+    fs::create_dir_all(home.path().join(".codex")).unwrap();
+
+    let report = install_skills_into(home.path(), false, false).unwrap();
+    assert_eq!(report.written.len(), 1);
+    assert_eq!(report.skipped.len(), 1);
+    assert!(report.written[0].starts_with(home.path().join(".codex")));
 }
 
 #[test]

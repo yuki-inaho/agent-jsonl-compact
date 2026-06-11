@@ -38,7 +38,20 @@ demo: build
 stats input:
     cargo run --release -- -i "{{input}}" --stats
 
-# ~/.local/bin へインストール
+# musl 静的バイナリをビルド(glibc 非依存・配布用)
+build-musl:
+    rustup target add x86_64-unknown-linux-musl
+    cargo build --release --target x86_64-unknown-linux-musl
+
+# ローカルビルドを ~/.local/bin へインストール
 install: build
     install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
     @echo "installed: ~/.local/bin/agent-jsonl-compact (ensure ~/.local/bin is on PATH)"
+
+# prebuilt release(GitHub Releases)を curl で ~/.local/bin へインストール
+install-release:
+    curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash
+
+# reader スキルを各エージェントへインストール(CLI 内蔵 install-skills)
+install-skills: build
+    ./target/release/agent-jsonl-compact install-skills

@@ -8,6 +8,23 @@ OpenAI Codex CLI rollout JSONL と Anthropic Claude Code transcript JSONL を自
 skills/session-transcript-extractor/scripts/extract_session_jsonl.py
 ```
 
+## Install (prebuilt)
+
+Rust/cargo 不要。GitHub Releases の Linux x86_64 musl 静的バイナリを `~/.local/bin` へ入れます。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash
+```
+
+バージョン固定やインストール先変更は環境変数で行います。
+
+```bash
+AJC_VERSION=v0.1.0 INSTALL_DIR=~/bin \
+  bash -c 'curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash'
+```
+
+対応プラットフォームは Linux x86_64(musl)のみです。他環境は下記の Build からソースビルドしてください。
+
 ## Build
 
 ```bash
@@ -83,8 +100,46 @@ just build      # release バイナリをビルド
 just demo       # build → 同梱の合成 fixture で利用例を実行(./demo-out に3種出力)
 just stats <f>  # 形式とレコード型分布のみ表示
 just test       # 全テスト
-just check      # fmt-check + clippy(-D warnings) + test
-just install    # ~/.local/bin へインストール
+just check          # fmt-check + clippy(-D warnings) + test
+just install        # ローカルビルドを ~/.local/bin へインストール
+just build-musl     # musl 静的バイナリをビルド(配布用)
+just install-release # prebuilt を curl で ~/.local/bin へ
+```
+
+## Skill: agent-jsonl-compact-reader
+
+既存セッション JSONL を「軽量化してから段階的に読む」ための Claude Code / Codex 用スキルです。
+`summary.json` で全体規模を掴み、必要箇所だけ `transcript.md` / `clean.jsonl` を読むことで、
+巨大ログを生のままコンテキストへ載せずに把握します。SKILL.md はバイナリに埋め込まれています。
+
+### Install the skill
+
+バイナリ導入後、**CLI 自身がスキルを各エージェントへ配置**します
+(Microsoft `playwright-cli install --skills` と同じ方式)。
+
+```bash
+agent-jsonl-compact install-skills
+```
+
+prebuilt と合わせればワンライナーです。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash \
+  && ~/.local/bin/agent-jsonl-compact install-skills
+```
+
+配置先(存在するエージェントのみ。片方だけは `--claude-only` / `--codex-only`):
+
+```text
+~/.claude/skills/agent-jsonl-compact-reader/SKILL.md
+~/.codex/skills/agent-jsonl-compact-reader/SKILL.md
+```
+
+開発中にリポジトリの SKILL.md を直接編集しながら使いたい場合は symlink でも登録できます。
+
+```bash
+ln -sfn "$PWD/skills/agent-jsonl-compact-reader" ~/.claude/skills/agent-jsonl-compact-reader
+ln -sfn "$PWD/skills/agent-jsonl-compact-reader" ~/.codex/skills/agent-jsonl-compact-reader
 ```
 
 ## S/N (signal vs noise) policy

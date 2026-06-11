@@ -9,7 +9,7 @@ pub mod render;
 pub mod runner;
 pub mod util;
 
-pub use runner::{run, ExtractReport, RunOutcome, StatsReport};
+pub use runner::{install_skills_into, run, ExtractReport, InstallReport, RunOutcome, StatsReport};
 
 pub fn run_cli() -> i32 {
     use clap::Parser;

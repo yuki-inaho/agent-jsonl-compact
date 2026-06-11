@@ -1,6 +1,6 @@
 use crate::classify::classify;
 use crate::clean::{keep_set, kind_of, Cleaner};
-use crate::cli::{Cli, OutputFormat, SessionFormat};
+use crate::cli::{Cli, Command, OutputFormat, SessionFormat};
 use crate::counter::Counter;
 use crate::detect::detect_format;
 use crate::render::render_markdown;
@@ -8,17 +8,24 @@ use crate::util::{
     clone_or_null, event, for_each_jsonl_record, json_text, json_truthy, number_u64, string, Event,
     JsonObject,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{Map, Number, Value};
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const READER_SKILL_NAME: &str = "agent-jsonl-compact-reader";
+const READER_SKILL_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/skills/agent-jsonl-compact-reader/SKILL.md"
+));
 
 #[derive(Debug, Clone)]
 pub enum RunOutcome {
     Stats(StatsReport),
     Extract(ExtractReport),
+    InstalledSkills(InstallReport),
 }
 
 impl RunOutcome {
@@ -26,6 +33,7 @@ impl RunOutcome {
         match self {
             RunOutcome::Stats(report) => report.print(),
             RunOutcome::Extract(report) => report.print(),
+            RunOutcome::InstalledSkills(report) => report.print(),
         }
     }
 }
@@ -88,13 +96,54 @@ impl ExtractReport {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct InstallReport {
+    pub written: Vec<PathBuf>,
+    pub skipped: Vec<(PathBuf, String)>,
+}
+
+impl InstallReport {
+    pub fn print(&self) {
+        if self.written.is_empty() {
+            println!("no skill installed.");
+        } else {
+            println!("installed skill '{READER_SKILL_NAME}':");
+            for path in &self.written {
+                println!("  - {}", path.display());
+            }
+        }
+        for (path, reason) in &self.skipped {
+            println!("  skipped {} ({reason})", path.display());
+        }
+    }
+}
+
 pub fn run(args: Cli) -> Result<RunOutcome> {
-    if !args.input.exists() {
-        bail!("input not found: {}", args.input.display());
+    if let Some(command) = &args.command {
+        return match command {
+            Command::InstallSkills {
+                claude_only,
+                codex_only,
+            } => {
+                let home = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .ok_or_else(|| anyhow!("HOME environment variable is not set"))?;
+                install_skills_into(&home, *claude_only, *codex_only)
+                    .map(RunOutcome::InstalledSkills)
+            }
+        };
+    }
+
+    let input = args
+        .input
+        .clone()
+        .ok_or_else(|| anyhow!("--input <FILE> is required (or run a subcommand; see --help)"))?;
+    if !input.exists() {
+        bail!("input not found: {}", input.display());
     }
 
     let format = match args.format {
-        SessionFormat::Auto => detect_format(&args.input, 50)?,
+        SessionFormat::Auto => detect_format(&input, 50)?,
         other => other,
     };
     let keep = keep_set(format, args.channel, args.keep_token_count);
@@ -113,7 +162,7 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
     let mut kept: Vec<Event> = Vec::new();
     let mut claude_session_done = false;
 
-    for_each_jsonl_record(&args.input, |object| {
+    for_each_jsonl_record(&input, |object| {
         raw_type_counter.inc(raw_type_key(&object, format));
 
         if format == SessionFormat::ClaudeCode
@@ -165,7 +214,7 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
     fs::create_dir_all(&out_dir)
         .with_context(|| format!("failed to create output directory {}", out_dir.display()))?;
     let base = args.name.clone().unwrap_or_else(|| {
-        args.input
+        input
             .file_stem()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| "session".to_string())
@@ -173,6 +222,7 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
 
     let summary = build_summary(
         &args,
+        &input,
         format,
         &raw_type_counter,
         &kind_counter_all,
@@ -214,7 +264,7 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
 
     Ok(RunOutcome::Extract(ExtractReport {
         format,
-        input_bytes: fs::metadata(&args.input)?.len(),
+        input_bytes: fs::metadata(&input)?.len(),
         total_lines: raw_type_counter.total(),
         kept_events: kept.len(),
         output_bytes,
@@ -241,8 +291,10 @@ fn raw_type_key(object: &JsonObject, format: SessionFormat) -> String {
     record_type
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_summary(
     args: &Cli,
+    input: &Path,
     format: SessionFormat,
     raw_type_counter: &Counter,
     kind_counter_all: &Counter,
@@ -250,14 +302,14 @@ fn build_summary(
     models: &BTreeSet<String>,
     kept: &[Event],
 ) -> Result<Value> {
-    let input_bytes = fs::metadata(&args.input)?.len();
+    let input_bytes = fs::metadata(input)?.len();
     let goals = unique_goals(kept);
     let session_info = first_session_info(kept).unwrap_or(Value::Null);
 
     let mut object = Map::new();
     object.insert(
         "input".to_string(),
-        Value::String(args.input.to_string_lossy().to_string()),
+        Value::String(input.to_string_lossy().to_string()),
     );
     object.insert(
         "format".to_string(),
@@ -338,4 +390,43 @@ fn first_session_info(kept: &[Event]) -> Option<Value> {
 #[allow(dead_code)]
 fn compact_json_preview(value: &Value, chars: usize) -> String {
     json_text(value).chars().take(chars).collect()
+}
+
+/// reader スキルの SKILL.md を `home` 配下の各エージェント skills ディレクトリへ
+/// 書き出します。エージェントの home(~/.claude や ~/.codex)が存在しない場合、
+/// 明示指定(--claude-only / --codex-only)が無ければ skip します。
+pub fn install_skills_into(
+    home: &Path,
+    claude_only: bool,
+    codex_only: bool,
+) -> Result<InstallReport> {
+    let mut agents: Vec<(&str, PathBuf)> = Vec::new();
+    if !codex_only {
+        agents.push(("claude", home.join(".claude")));
+    }
+    if !claude_only {
+        agents.push(("codex", home.join(".codex")));
+    }
+
+    let explicit = claude_only || codex_only;
+    let mut report = InstallReport::default();
+
+    for (agent, agent_home) in agents {
+        let target = agent_home.join("skills").join(READER_SKILL_NAME);
+        if !agent_home.exists() && !explicit {
+            report.skipped.push((
+                target.join("SKILL.md"),
+                format!("{agent} home not found: {}", agent_home.display()),
+            ));
+            continue;
+        }
+        fs::create_dir_all(&target)
+            .with_context(|| format!("failed to create {}", target.display()))?;
+        let file = target.join("SKILL.md");
+        fs::write(&file, READER_SKILL_MD)
+            .with_context(|| format!("failed to write {}", file.display()))?;
+        report.written.push(file);
+    }
+
+    Ok(report)
 }

@@ -1,15 +1,20 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "agent-jsonl-compact",
+    version,
     about = "Codex CLI / Claude Code session JSONL を compact JSONL・Markdown・summary JSON へ抽出します。"
 )]
 pub struct Cli {
-    /// rollout-*.jsonl / Claude Code <uuid>.jsonl
+    /// サブコマンド。未指定時は抽出(従来動作)です。
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    /// rollout-*.jsonl / Claude Code <uuid>.jsonl。抽出時は必須です。
     #[arg(short = 'i', long = "input")]
-    pub input: PathBuf,
+    pub input: Option<PathBuf>,
 
     /// 出力先。未指定時はカレントディレクトリです。
     #[arg(short = 'o', long = "out-dir")]
@@ -54,6 +59,20 @@ pub struct Cli {
     /// 形式とレコード型分布だけ表示して終了します。
     #[arg(long = "stats")]
     pub stats: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Command {
+    /// agent-jsonl-compact-reader スキルを ~/.claude/skills と ~/.codex/skills へインストールします。
+    InstallSkills {
+        /// Claude Code(~/.claude/skills)のみへインストールします。
+        #[arg(long, conflicts_with = "codex_only")]
+        claude_only: bool,
+
+        /// Codex(~/.codex/skills)のみへインストールします。
+        #[arg(long)]
+        codex_only: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

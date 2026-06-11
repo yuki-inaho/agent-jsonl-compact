@@ -6,3 +6,6 @@ demo-out/
 *.clean.jsonl
 *.transcript.md
 *.summary.json
+
+# Serena tool metadata
+.serena/

@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    env:
+      BIN: agent-jsonl-compact
+      TARGET: x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + musl target)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (musl, static)
+        run: cargo build --release --target "$TARGET"
+
+      - name: Package tarball + checksum
+        id: package
+        run: |
+          set -euo pipefail
+          dist="${BIN}-${TARGET}"
+          mkdir -p "stage/${dist}"
+          cp "target/${TARGET}/release/${BIN}" "stage/${dist}/"
+          cp README.md "stage/${dist}/" 2>/dev/null || true
+          tar -C stage -czf "${dist}.tar.gz" "${dist}"
+          sha256sum "${dist}.tar.gz" > "${dist}.tar.gz.sha256"
+          echo "tarball=${dist}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}-${{ env.TARGET }}
+          path: |
+            ${{ steps.package.outputs.tarball }}
+            ${{ steps.package.outputs.tarball }}.sha256
+
+      - name: Publish to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.tarball }}
+            ${{ steps.package.outputs.tarball }}.sha256
