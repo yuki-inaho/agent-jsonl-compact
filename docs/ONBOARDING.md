@@ -73,3 +73,23 @@
 - **連絡先/責任者:** git author `yuki-inaho`(yoshikawa@inaho.co)。GitHub: `yuki-inaho/agent-jsonl-compact`。
 
 > ※テンプレートは必要に応じて拡張・縮退して構いません。記入済みのドキュメントはバージョン管理してください。
+
+---
+
+### 付録: セッション JSONL フォーマット早見
+
+Codex と Claude Code の JSONL は**別スキーマ**。共通点は「1行1 JSON」「`type` と `timestamp` を持つ」程度。
+
+| | Codex CLI rollout | Claude Code transcript |
+|---|---|---|
+| 1行の形 | `{type, payload, timestamp}` | `{type, message, sessionId, uuid, parentUuid, cwd, ...}` |
+| 本文の在処 | `payload` の中(さらに `payload.type` で再分類) | `message.content`(文字列 or ブロック配列) |
+| 識別子 | `payload.id` | `sessionId` / `uuid` / `parentUuid`(ツリー構造) |
+| `type` 例 | `session_meta` / `response_item` / `event_msg` / `turn_context` / `compacted` | `user` / `assistant` / `summary` / `ai-title` / `mode` |
+| 特徴 | terminal(`event_msg`)と api(`response_item`)の**二重記録** | 単一系列、`message.content` にツール呼出/結果が混在 |
+
+- **決定的な見分け方は `payload` キーの有無**(Codex は必ず持つ、Claude Code は持たない)。
+- 自動判別は `src/detect.rs`(先頭50行をサンプリング)。内容で決まらないときのみ入力パス
+  (`rollout-*` / `~/.codex/` / `~/.claude/`)を補助シグナルに使う。
+- 分岐実装は `src/classify.rs`(正規化)・`src/clean.rs`(keep set)が両形式で完全に分かれる。
+  `--format auto|codex|claude_code` で明示上書きも可。
