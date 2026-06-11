@@ -285,3 +285,39 @@ cargo build --release
 ```
 
 `demo-out/` と `target/` は生成物であり、Git 管理対象にしない。
+
+## 10. 配布とスキル統合(2026-06-11)
+
+`agent-jsonl-compact` を「ビルド済みバイナリ + エージェントスキル」として配布可能にする作業を
+追加した。Rust 環境を持たない利用者(および他マシン)が導入できる状態を目的とする。
+
+### 10.1 追加した成果物
+
+| 区分 | 成果物 | 役割 |
+|---|---|---|
+| 配布 CI | `.github/workflows/release.yml` | `v*` タグで musl 静的バイナリを tarball+sha256 にし Releases へ添付 |
+| 品質 CI | `.github/workflows/ci.yml` | push/PR で fmt-check + clippy(-D warnings) + test |
+| インストーラ | `install.sh` | `curl\|bash` で OS/arch 判定→DL→sha256 検証→`~/.local/bin` へ配置 |
+| スキル | `skills/agent-jsonl-compact-reader/SKILL.md` | summary→必要箇所だけ段階読みするフロー(Claude/Codex 両対応) |
+| サブコマンド | `agent-jsonl-compact install-skills` | SKILL.md をバイナリ埋め込みし各エージェント skills へ配置(playwright-cli 流) |
+| 補助 | `--version` / release `strip` / justfile(`build-musl`/`dist`/`install-release`/`install-skills`) | 配布補助 |
+
+### 10.2 配布方針の決定
+
+- 対象は Linux x86_64 musl 静的バイナリのみ(glibc 非依存・単一ファイル)。
+- スキルは本リポジトリ `skills/` に同梱し、Claude Code と Codex の両方から使う。
+- `install-skills` は Microsoft `playwright-cli install --skills` と同方式
+  (CLI 自身がスキルを各エージェントへ配置)を採用。
+- 配布のため GitHub リポジトリを public へ変更(同梱は合成 fixture のみ・PII なし)。
+
+### 10.3 検証(2026-06-11 実施)
+
+| 検証 | 結果 |
+|---|---|
+| `just check`(fmt/clippy/test、unit3 + integration5) | green |
+| musl 静的ビルド(`file` で static-pie / stripped) | OK |
+| GitHub Actions `ci` / `release`(v0.1.0) | いずれも success |
+| `install.sh` e2e(固定版 / latest / raw URL の3経路) | DL→sha256→配置→`--version` すべて OK |
+| `install-skills`(両方 / `--codex-only` / 入力なしエラー) | 期待どおり |
+
+初版 release は `v0.1.0`。`dist/` は `just dist` のローカル生成物であり Git 管理対象にしない。

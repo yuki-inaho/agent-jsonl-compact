@@ -3,6 +3,8 @@
 
 # Demo / extraction outputs (derived from real sessions = potential PII; never commit)
 demo-out/
+# Local distribution artifacts (reproduced from `just dist`)
+dist/
 *.clean.jsonl
 *.transcript.md
 *.summary.json

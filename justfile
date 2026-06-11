@@ -43,14 +43,28 @@ build-musl:
     rustup target add x86_64-unknown-linux-musl
     cargo build --release --target x86_64-unknown-linux-musl
 
+# 配布物(CI と同じ tarball + sha256)を dist/ に生成
+dist: build-musl
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="x86_64-unknown-linux-musl"
+    bin="agent-jsonl-compact"
+    name="${bin}-${target}"
+    rm -rf dist && mkdir -p "dist/${name}"
+    cp "target/${target}/release/${bin}" "dist/${name}/"
+    cp README.md LICENSE "dist/${name}/"
+    tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+    ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+    ls -la dist
+
 # ローカルビルドを ~/.local/bin へインストール
 install: build
     install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
     @echo "installed: ~/.local/bin/agent-jsonl-compact (ensure ~/.local/bin is on PATH)"
 
-# prebuilt release(GitHub Releases)を curl で ~/.local/bin へインストール
+# 手元の install.sh で prebuilt を ~/.local/bin へ(配布フロー検証兼用)
 install-release:
-    curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash
+    bash install.sh
 
 # reader スキルを各エージェントへインストール(CLI 内蔵 install-skills)
 install-skills: build
