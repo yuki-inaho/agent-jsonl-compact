@@ -399,3 +399,58 @@ OpenCode fixture --stats                  detected format: opencode
 
 可変の公式文書だけでなく、検証対象と同じ `v1.18.26` タグのソースを併記した。
 これにより、将来のOpenCode更新で形式が変わった場合に、どのバージョンとの差分を確認すべきか追跡できる。
+
+## 12. Codex / Claude Code の参照仕様と小規模リファクタ（2026-09-02）
+
+### 12.1 形式ごとの根拠とサポート境界
+
+OpenCodeだけでなく、既存のCodex / Claude Code入力についても一次情報を確認した。
+形式が同じ安定度で公開されているとは仮定しない。
+
+| 形式 | 資料 | URL | 採用した根拠・境界 |
+|---|---|---|---|
+| Codex CLI | v0.152.0 rollout writer | <https://github.com/openai/codex/blob/rust-v0.152.0/codex-rs/rollout/src/recorder.rs> | ローカル導入済み `codex-cli 0.152.0` と同じタグ。`RolloutLineRef` が `timestamp` / optional `ordinal` / flattenされた `RolloutItem` をJSONへserializeし、1行ずつ追記すること。 |
+| Codex CLI | v0.152.0 rollout tests | <https://github.com/openai/codex/blob/rust-v0.152.0/codex-rs/rollout/src/tests.rs> | `session_meta`、`event_msg`、`response_item` を含むレコードのJSON互換性と、`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` の保存例。 |
+| Claude Code | Sessions公式文書 | <https://code.claude.com/docs/en/sessions#where-transcripts-are-stored> | 保存場所 `~/.claude/projects/<project>/<session-id>.jsonl` と、各行がmessage/tool/metadataのJSON objectであること。**行内形式はinternalでリリース間に変更可能**とも明記されている。 |
+| Claude Code | `.claude` directory公式文書 | <https://code.claude.com/docs/en/claude-directory> | `~/.claude` がtranscript、prompt history、file snapshots、cache、logを含むアプリケーションデータであり、実ログをPIIとして扱う理由。 |
+
+Codexは公開実装に基づくバージョン固定の互換実装とする。Claude Codeは公開安定スキーマではないため、
+`sessionId` / `uuid` / `parentUuid` と既知 `type` の組合せだけで検出し、未知レコードは捨てずにmetaとして扱う。
+いずれも、実ログをfixtureへコピーせず、変更時に合成fixtureを追加して確認する。
+
+### 12.2 品質調査と採用した変更
+
+[Mozilla rust-code-analysis](https://github.com/mozilla/rust-code-analysis) のCLI
+`rust-code-analysis-cli` 0.0.25を開発環境へ `cargo install rust-code-analysis-cli --locked` で導入した。
+これはプロジェクトの実行時・開発時依存には加えない外部解析ツールである。
+
+実測コマンド:
+
+```bash
+rust-code-analysis-cli --metrics --output-format json --paths src
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+メトリクス上、`classify_codex_event_msg` (cyclomatic 15, cognitive 1) と
+`classify_codex_response_item` (cyclomatic 12, cognitive 6) が目立つ。ただし前者は外部JSONの
+discriminatorを平坦な `match` で列挙した結果であり、数値だけを下げるための分割は可読性を悪化させる。
+SOLID / KISS / DRY / YAGNIに従い、変更対象は実際に重複していた箇所だけに限定した。
+
+- `detect.rs`: 形式別type一覧を不変定数へ移し、検出のたびに3個の `HashSet` を構築する不要な処理を除去した。
+- `classify.rs`: reader由来の `_parse_error` を3形式で同一eventへ正規化していた処理を、1個の小さなヘルパーへ集約した。
+- `runner.rs`: Claude Code / OpenCodeの初回session event合成を1関数へ集約し、ループ側は「最初の合成eventを一度だけ採用する」責務に絞った。
+- 回帰テスト: 3形式すべてでparse errorのevent契約が同一であることを追加で検証した。
+
+新しいtrait、汎用parser framework、形式横断の複雑な抽象化、CI必須の外部解析器は追加しない。
+これは3形式の実データ境界が異なるためであり、拡張点を作るより既存の形式別classifierを明示的に保つ方が安全である。
+
+検証結果:
+
+```text
+rust-code-analysis-cli 0.0.25             installed
+cargo fmt --check                         success
+cargo clippy --all-targets -- -D warnings success
+cargo test                                13 passed (unit 7 + integration 6)
+```

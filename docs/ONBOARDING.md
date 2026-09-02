@@ -6,7 +6,7 @@
 - **プロジェクト名称・領域:** `agent-jsonl-compact` — Codex CLI / Claude Code / OpenCode run のセッション JSONL を軽量化する単一 Rust CLI と、それを使うエージェントスキル。
 - **最終成果物:** 生 JSONL を自動判定し `*.clean.jsonl` / `*.transcript.md` / `*.summary.json` を生成する単一バイナリ。加えて reader スキル(`agent-jsonl-compact-reader`)と musl 配布(`install.sh` / GitHub Releases)。
 - **ビジネス背景・価値:** 巨大なセッションログを生のままコンテキストへ載せず「軽量化 → 段階読み」でトークンを節約する。`slack-knowledge-rag` 等の周辺ツールから PATH 上の CLI として利用される(`just extract-session` / `inspect-session`)。
-- **現時点の進捗サマリ:** v0.1.0 リリース済み。CI(`ci`/`release`)・配布(musl/`install.sh`)・スキル(`install-skills`)整備完了。2026-09-02にOpenCode `run --format json` NDJSON対応をmainへ追加。`確認済み`: ローカル fmt / clippy / unit 6 + integration 6 green。新releaseタグは未作成。
+- **現時点の進捗サマリ:** v0.1.0 リリース済み。CI(`ci`/`release`)・配布(musl/`install.sh`)・スキル(`install-skills`)整備完了。2026-09-02にOpenCode `run --format json` NDJSON対応と、形式判定・parse error・session合成の小規模リファクタをmainへ追加。`確認済み`: ローカル fmt / clippy / unit 7 + integration 6 green。新releaseタグは未作成。
 
 ## 2. クリティカルな要求・制約
 > 「壊してはいけない」品質・仕様ラインを箇条書きで列挙します。
@@ -28,7 +28,11 @@
 | OpenCode CLI仕様 | <https://dev.opencode.ai/docs/cli/#run> | `run --format json`、`export`、`db path` の公式CLI契約 |
 | OpenCode JSONL実装 | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/opencode/src/cli/cmd/run.ts> | JSONL外形とstdoutへ出すevent typeの根拠 |
 | OpenCode part型 | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/sdk/js/src/v2/gen/types.gen.ts> | tool state、tokens、cost等のフィールド定義 |
-| WBS / 進捗 | `docs/workdoc_...md` 章9–11 | 統合メモ、配布・スキル、OpenCode対応の記録 |
+| Codex rollout writer (0.152.0) | <https://github.com/openai/codex/blob/rust-v0.152.0/codex-rs/rollout/src/recorder.rs> | ローカル `codex-cli 0.152.0` と同じタグ。JSONL writer、保存先、`timestamp` / `ordinal` / flattenされた `RolloutItem` の根拠 |
+| Codex rollout互換テスト (0.152.0) | <https://github.com/openai/codex/blob/rust-v0.152.0/codex-rs/rollout/src/tests.rs> | `session_meta`、`event_msg`、`response_item` の合成レコードとJSON互換性の実例 |
+| Claude Code session保存 | <https://code.claude.com/docs/en/sessions#where-transcripts-are-stored> | `~/.claude/projects/<project>/<session-id>.jsonl`、1行がmessage/tool/metadata JSON objectであること。行内形式は内部形式で可変という制約もここを正本とする |
+| Claude Code application data | <https://code.claude.com/docs/en/claude-directory> | `~/.claude` がtranscript等のアプリケーションデータを含むこと、およびPIIとして扱う根拠 |
+| WBS / 進捗 | `docs/workdoc_...md` 章9–12 | 統合メモ、配布・スキル、OpenCode対応、形式根拠・リファクタの記録 |
 | タスク定義 | `justfile` | build / test / check / demo / dist / install* |
 | テスト資産 | `tests/integration.rs`, `tests/fixtures/*.jsonl` | 自動判定・出力・install-skills の確認(合成 fixture) |
 | 既知課題リスト | 未確認 | 専用課題リストは未整備。GitHub Issues は `推定`(未確認) |
