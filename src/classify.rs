@@ -14,13 +14,23 @@ pub fn classify(object: &JsonObject, format: SessionFormat) -> Vec<Event> {
     }
 }
 
+/// JSONL reader が作る parse error を、入力形式にかかわらず同じ event 契約へ正規化する。
+fn parse_error_event(object: &JsonObject) -> Option<Event> {
+    object
+        .get("_parse_error")
+        .and_then(Value::as_str)
+        .map(|err| {
+            event([
+                ("ts", Value::Null),
+                ("kind", string("parse_error")),
+                ("error", string(err)),
+            ])
+        })
+}
+
 fn classify_opencode(object: &JsonObject) -> Vec<Event> {
-    if let Some(err) = object.get("_parse_error").and_then(Value::as_str) {
-        return vec![event([
-            ("ts", Value::Null),
-            ("kind", string("parse_error")),
-            ("error", string(err)),
-        ])];
+    if let Some(event) = parse_error_event(object) {
+        return vec![event];
     }
 
     let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
@@ -124,12 +134,8 @@ fn opencode_error_text(error: Option<&Value>) -> String {
 }
 
 fn classify_codex(object: &JsonObject) -> Vec<Event> {
-    if let Some(err) = object.get("_parse_error").and_then(Value::as_str) {
-        return vec![event([
-            ("ts", Value::Null),
-            ("kind", string("parse_error")),
-            ("error", string(err)),
-        ])];
+    if let Some(event) = parse_error_event(object) {
+        return vec![event];
     }
 
     let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
@@ -355,12 +361,8 @@ fn classify_codex_response_item(ts: Value, payload: Option<&JsonObject>) -> Vec<
 }
 
 fn classify_claude(object: &JsonObject) -> Vec<Event> {
-    if let Some(err) = object.get("_parse_error").and_then(Value::as_str) {
-        return vec![event([
-            ("ts", Value::Null),
-            ("kind", string("parse_error")),
-            ("error", string(err)),
-        ])];
+    if let Some(event) = parse_error_event(object) {
+        return vec![event];
     }
 
     let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
@@ -518,5 +520,33 @@ fn claude_tool_cmd(name: Option<&str>, input: Option<&Value>) -> Option<String> 
             )
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_format_normalizes_reader_parse_errors_identically() {
+        let mut object = JsonObject::new();
+        object.insert("_parse_error".to_string(), string("invalid JSON"));
+
+        for format in [
+            SessionFormat::Codex,
+            SessionFormat::ClaudeCode,
+            SessionFormat::OpenCode,
+        ] {
+            let events = classify(&object, format);
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0].get("kind").and_then(Value::as_str),
+                Some("parse_error")
+            );
+            assert_eq!(
+                events[0].get("error").and_then(Value::as_str),
+                Some("invalid JSON")
+            );
+        }
     }
 }

@@ -160,50 +160,19 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
     let mut kept_kind_counter = Counter::default();
     let mut models = BTreeSet::new();
     let mut kept: Vec<Event> = Vec::new();
-    let mut claude_session_done = false;
-    let mut opencode_session_done = false;
+    let mut synthesized_session_done = false;
 
     for_each_jsonl_record(&input, |object| {
         raw_type_counter.inc(raw_type_key(&object, format));
 
-        if format == SessionFormat::ClaudeCode
-            && !claude_session_done
-            && json_truthy(object.get("cwd"))
-        {
-            claude_session_done = true;
-            let session_event = event([
-                ("ts", clone_or_null(object.get("timestamp"))),
-                ("kind", string("session")),
-                ("id", clone_or_null(object.get("sessionId"))),
-                ("cwd", clone_or_null(object.get("cwd"))),
-                ("cli_version", clone_or_null(object.get("version"))),
-                ("git_branch", clone_or_null(object.get("gitBranch"))),
-                ("originator", string("claude-code")),
-            ]);
-            kind_counter_all.inc("session");
-            if let Some(accepted) = cleaner.accept(session_event) {
-                kept_kind_counter.inc(kind_of(&accepted).unwrap_or(""));
-                kept.push(accepted);
-            }
-        }
-
-        if format == SessionFormat::OpenCode
-            && !opencode_session_done
-            && json_truthy(object.get("sessionID"))
-        {
-            opencode_session_done = true;
-            let session_event = event([
-                ("ts", clone_or_null(object.get("timestamp"))),
-                ("kind", string("session")),
-                ("id", clone_or_null(object.get("sessionID"))),
-                ("cwd", Value::Null),
-                ("cli_version", Value::Null),
-                ("originator", string("opencode")),
-            ]);
-            kind_counter_all.inc("session");
-            if let Some(accepted) = cleaner.accept(session_event) {
-                kept_kind_counter.inc(kind_of(&accepted).unwrap_or(""));
-                kept.push(accepted);
+        if !synthesized_session_done {
+            if let Some(session_event) = synthesized_session_event(&object, format) {
+                synthesized_session_done = true;
+                kind_counter_all.inc("session");
+                if let Some(accepted) = cleaner.accept(session_event) {
+                    kept_kind_counter.inc(kind_of(&accepted).unwrap_or(""));
+                    kept.push(accepted);
+                }
             }
         }
 
@@ -291,6 +260,32 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
         output_bytes,
         written,
     }))
+}
+
+/// Claude Code と OpenCode は通常の正規化イベントに session metadata を持たないため、
+/// 最初に確認できたレコードから一度だけ session event を補う。
+fn synthesized_session_event(object: &JsonObject, format: SessionFormat) -> Option<Event> {
+    let ts = clone_or_null(object.get("timestamp"));
+    match format {
+        SessionFormat::ClaudeCode if json_truthy(object.get("cwd")) => Some(event([
+            ("ts", ts),
+            ("kind", string("session")),
+            ("id", clone_or_null(object.get("sessionId"))),
+            ("cwd", clone_or_null(object.get("cwd"))),
+            ("cli_version", clone_or_null(object.get("version"))),
+            ("git_branch", clone_or_null(object.get("gitBranch"))),
+            ("originator", string("claude-code")),
+        ])),
+        SessionFormat::OpenCode if json_truthy(object.get("sessionID")) => Some(event([
+            ("ts", ts),
+            ("kind", string("session")),
+            ("id", clone_or_null(object.get("sessionID"))),
+            ("cwd", Value::Null),
+            ("cli_version", Value::Null),
+            ("originator", string("opencode")),
+        ])),
+        _ => None,
+    }
 }
 
 fn raw_type_key(object: &JsonObject, format: SessionFormat) -> String {

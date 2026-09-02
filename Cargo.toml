@@ -3,7 +3,7 @@ name = "agent-jsonl-compact"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.74"
-description = "Compact OpenAI Codex CLI rollout JSONL and Anthropic Claude Code transcript JSONL into clean JSONL, Markdown, and summary JSON."
+description = "Compact OpenAI Codex CLI, Anthropic Claude Code, and OpenCode session JSONL into clean JSONL, Markdown, and summary JSON."
 license = "MIT"
 
 [dependencies]

@@ -2,44 +2,39 @@ use crate::cli::SessionFormat;
 use crate::util::for_each_jsonl_record_until;
 use anyhow::Result;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::path::Path;
 
-pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
-    let codex_types: HashSet<&'static str> = [
-        "session_meta",
-        "response_item",
-        "event_msg",
-        "turn_context",
-        "compacted",
-    ]
-    .into_iter()
-    .collect();
-    let claude_types: HashSet<&'static str> = [
-        "user",
-        "assistant",
-        "system",
-        "summary",
-        "ai-title",
-        "mode",
-        "permission-mode",
-        "last-prompt",
-        "attachment",
-        "file-history-snapshot",
-    ]
-    .into_iter()
-    .collect();
-    let opencode_types: HashSet<&'static str> = [
-        "step_start",
-        "text",
-        "reasoning",
-        "tool_use",
-        "step_finish",
-        "error",
-    ]
-    .into_iter()
-    .collect();
+const CODEX_TYPES: &[&str] = &[
+    "session_meta",
+    "response_item",
+    "event_msg",
+    "turn_context",
+    "compacted",
+];
 
+const CLAUDE_TYPES: &[&str] = &[
+    "user",
+    "assistant",
+    "system",
+    "summary",
+    "ai-title",
+    "mode",
+    "permission-mode",
+    "last-prompt",
+    "attachment",
+    "file-history-snapshot",
+];
+
+const OPENCODE_TYPES: &[&str] = &[
+    "step_start",
+    "text",
+    "reasoning",
+    "tool_use",
+    "step_finish",
+    "error",
+];
+
+pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
     let mut seen = 0usize;
     let mut codex_hits = 0usize;
     let mut claude_hits = 0usize;
@@ -56,19 +51,19 @@ pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
         }
 
         let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
-        if object.contains_key("payload") && codex_types.contains(record_type) {
+        if object.contains_key("payload") && CODEX_TYPES.contains(&record_type) {
             codex_hits += 1;
         }
         if !object.contains_key("payload")
             && (object.contains_key("sessionId")
                 || object.contains_key("uuid")
                 || object.contains_key("parentUuid"))
-            && claude_types.contains(record_type)
+            && CLAUDE_TYPES.contains(&record_type)
         {
             claude_hits += 1;
         }
         if object.contains_key("sessionID")
-            && opencode_types.contains(record_type)
+            && OPENCODE_TYPES.contains(&record_type)
             && (object.contains_key("part") || object.contains_key("error"))
         {
             opencode_hits += 1;
