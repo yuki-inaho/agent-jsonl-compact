@@ -25,7 +25,10 @@
 | 概要・使い方 | `README.md` | インストール / 使い方 / オプション / S/N 方針 / 開発レイアウト |
 | 設計・作業記録 | `docs/workdoc_session_jsonl_compactor_rust_port.md` | 移植根拠・モジュール対応・配布/スキル統合(章10)・DOD |
 | スキル仕様 | `skills/agent-jsonl-compact-reader/SKILL.md` | reader スキルの段階読みフロー(summary → 必要箇所だけ) |
-| WBS / 進捗 | `docs/workdoc_...md` 章9–10 | 統合メモと配布・スキル作業の記録 |
+| OpenCode CLI仕様 | <https://dev.opencode.ai/docs/cli/#run> | `run --format json`、`export`、`db path` の公式CLI契約 |
+| OpenCode JSONL実装 | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/opencode/src/cli/cmd/run.ts> | JSONL外形とstdoutへ出すevent typeの根拠 |
+| OpenCode part型 | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/sdk/js/src/v2/gen/types.gen.ts> | tool state、tokens、cost等のフィールド定義 |
+| WBS / 進捗 | `docs/workdoc_...md` 章9–11 | 統合メモ、配布・スキル、OpenCode対応の記録 |
 | タスク定義 | `justfile` | build / test / check / demo / dist / install* |
 | テスト資産 | `tests/integration.rs`, `tests/fixtures/*.jsonl` | 自動判定・出力・install-skills の確認(合成 fixture) |
 | 既知課題リスト | 未確認 | 専用課題リストは未整備。GitHub Issues は `推定`(未確認) |

@@ -385,3 +385,17 @@ cargo clippy --all-targets -- -D warnings success
 cargo test                                12 passed (unit 6 + integration 6)
 OpenCode fixture --stats                  detected format: opencode
 ```
+
+### 11.4 参照仕様URL
+
+実装時に参照した一次資料を、何の根拠として使用したかとともに固定する。
+
+| 資料 | URL | 採用した根拠 |
+|---|---|---|
+| OpenCode CLI公式文書 | <https://dev.opencode.ai/docs/cli/#run> | `run --format json` がraw JSON eventsを出すこと。`export`は単一JSON、`db path`はDB位置表示であること |
+| v1.18.26 `run.ts` | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/opencode/src/cli/cmd/run.ts> | `{type,timestamp,sessionID,...}` を1行ずつ書く処理と、`step_start/text/reasoning/tool_use/step_finish/error` の選択 |
+| v1.18.26 SDK v2型定義 | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/sdk/js/src/v2/gen/types.gen.ts> | `TextPart`, `ReasoningPart`, `ToolState*`, `ToolPart`, `StepStartPart`, `StepFinishPart` のフィールド型 |
+| v1.18.26 session schema | <https://github.com/anomalyco/opencode/blob/v1.18.26/packages/schema/src/v1/session.ts> | part discriminator、tool state、token/cache/cost構造のスキーマ側定義 |
+
+可変の公式文書だけでなく、検証対象と同じ `v1.18.26` タグのソースを併記した。
+これにより、将来のOpenCode更新で形式が変わった場合に、どのバージョンとの差分を確認すべきか追跡できる。

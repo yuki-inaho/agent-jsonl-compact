@@ -101,6 +101,13 @@ agent-jsonl-compact -i opencode-session.jsonl -o temp/session_extracts
 `error` を含みます。ユーザープロンプトとモデル名は出力されないため、抽出器はそれらを
 推測しません。`opencode export` は単一のJSON文書であり、このJSONL入力とは別形式です。
 
+OpenCode形式の参照元:
+
+- [OpenCode CLI公式文書 — `run --format json`](https://dev.opencode.ai/docs/cli/#run)
+- [OpenCode v1.18.26 `run.ts` — JSONL外形と出力イベント](https://github.com/anomalyco/opencode/blob/v1.18.26/packages/opencode/src/cli/cmd/run.ts)
+- [OpenCode v1.18.26 SDK型定義 — `TextPart` / `ToolPart` / `StepFinishPart`](https://github.com/anomalyco/opencode/blob/v1.18.26/packages/sdk/js/src/v2/gen/types.gen.ts)
+- [OpenCode v1.18.26 session schema — part/stateの正本](https://github.com/anomalyco/opencode/blob/v1.18.26/packages/schema/src/v1/session.ts)
+
 サブコマンド / 情報:
 
 ```bash
