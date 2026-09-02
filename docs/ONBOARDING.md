@@ -3,10 +3,10 @@
 > このテンプレートは、新任LLMエージェントがプロジェクトに参加する際に共有する初期資料のたたき台です。各項目を埋め、参照元ドキュメントや補足リンクがあれば併記してください。
 
 ## 1. プロジェクト概要と目的
-- **プロジェクト名称・領域:** `agent-jsonl-compact` — Codex CLI / Claude Code のセッション JSONL を軽量化する単一 Rust CLI と、それを使うエージェントスキル。
+- **プロジェクト名称・領域:** `agent-jsonl-compact` — Codex CLI / Claude Code / OpenCode run のセッション JSONL を軽量化する単一 Rust CLI と、それを使うエージェントスキル。
 - **最終成果物:** 生 JSONL を自動判定し `*.clean.jsonl` / `*.transcript.md` / `*.summary.json` を生成する単一バイナリ。加えて reader スキル(`agent-jsonl-compact-reader`)と musl 配布(`install.sh` / GitHub Releases)。
 - **ビジネス背景・価値:** 巨大なセッションログを生のままコンテキストへ載せず「軽量化 → 段階読み」でトークンを節約する。`slack-knowledge-rag` 等の周辺ツールから PATH 上の CLI として利用される(`just extract-session` / `inspect-session`)。
-- **現時点の進捗サマリ:** v0.1.0 リリース済み。CI(`ci`/`release`)・配布(musl/`install.sh`)・スキル(`install-skills`)整備完了(2026-06-11)。`確認済み`: ローカル `just check` green、GitHub Actions success、`install.sh` の e2e(固定/latest/raw) OK。
+- **現時点の進捗サマリ:** v0.1.0 リリース済み。CI(`ci`/`release`)・配布(musl/`install.sh`)・スキル(`install-skills`)整備完了。2026-09-02にOpenCode `run --format json` NDJSON対応をmainへ追加。`確認済み`: ローカル fmt / clippy / unit 6 + integration 6 green。新releaseタグは未作成。
 
 ## 2. クリティカルな要求・制約
 > 「壊してはいけない」品質・仕様ラインを箇条書きで列挙します。
@@ -52,7 +52,7 @@
 ## 6. 試行タスク（オンボーディング演習）
 > 小さな検証タスクを2〜3件記載してください。理解度を確認するために実施します。
 1. `just check` と `just demo` を通し、`demo-out/` の3成果物(`*.summary.json`/`*.transcript.md`/`*.clean.jsonl`)を読む(`確認済み`に動作する)。
-2. `agent-jsonl-compact -i tests/fixtures/codex_sample.jsonl --stats` で形式とレコード型分布を確認する。
+2. `agent-jsonl-compact -i tests/fixtures/opencode_sample.jsonl --stats` でOpenCodeの自動判定とレコード型分布を確認する。
 3. 一時 HOME で `HOME=$(mktemp -d ...) agent-jsonl-compact install-skills` を実行し、`.claude`/`.codex` 配下への配置を確認する(実 HOME を汚さない)。
 
 ## 7. 運用ルール・変更管理
@@ -78,18 +78,20 @@
 
 ### 付録: セッション JSONL フォーマット早見
 
-Codex と Claude Code の JSONL は**別スキーマ**。共通点は「1行1 JSON」「`type` と `timestamp` を持つ」程度。
+3形式の JSONL は**別スキーマ**。共通点は「1行1 JSON」「`type` と `timestamp` を持つ」程度。
 
-| | Codex CLI rollout | Claude Code transcript |
-|---|---|---|
-| 1行の形 | `{type, payload, timestamp}` | `{type, message, sessionId, uuid, parentUuid, cwd, ...}` |
-| 本文の在処 | `payload` の中(さらに `payload.type` で再分類) | `message.content`(文字列 or ブロック配列) |
-| 識別子 | `payload.id` | `sessionId` / `uuid` / `parentUuid`(ツリー構造) |
-| `type` 例 | `session_meta` / `response_item` / `event_msg` / `turn_context` / `compacted` | `user` / `assistant` / `summary` / `ai-title` / `mode` |
-| 特徴 | terminal(`event_msg`)と api(`response_item`)の**二重記録** | 単一系列、`message.content` にツール呼出/結果が混在 |
+| | Codex CLI rollout | Claude Code transcript | OpenCode run JSONL |
+|---|---|---|---|
+| 1行の形 | `{type, payload, timestamp}` | `{type, message, sessionId, uuid, ...}` | `{type, timestamp, sessionID, part/error}` |
+| 本文の在処 | `payload` | `message.content` | `part.text` / `part.state` |
+| 識別子 | `payload.id` | `sessionId` / `uuid` / `parentUuid` | `sessionID` / `part.messageID` / `part.callID` |
+| `type` 例 | `session_meta` / `response_item` / `event_msg` | `user` / `assistant` / `summary` | `step_start` / `text` / `reasoning` / `tool_use` / `step_finish` / `error` |
+| 特徴 | terminalとapiの二重記録 | 会話・ツールが同一系列 | stdoutイベントのみ。prompt/modelは含まれない |
 
-- **決定的な見分け方は `payload` キーの有無**(Codex は必ず持つ、Claude Code は持たない)。
+- Codexは `payload`、Claude Codeは `sessionId`、OpenCodeは `sessionID` と `part/error` の組合せを強い判定材料にする。
 - 自動判別は `src/detect.rs`(先頭50行をサンプリング)。内容で決まらないときのみ入力パス
-  (`rollout-*` / `~/.codex/` / `~/.claude/`)を補助シグナルに使う。
-- 分岐実装は `src/classify.rs`(正規化)・`src/clean.rs`(keep set)が両形式で完全に分かれる。
-  `--format auto|codex|claude_code` で明示上書きも可。
+  (`rollout-*` / `~/.codex/` / `~/.claude/` / `opencode-*`)を補助シグナルに使う。
+- 分岐実装は `src/classify.rs`(正規化)・`src/clean.rs`(keep set)が形式ごとに分かれる。
+  `--format auto|codex|claude_code|opencode` で明示上書きも可。
+- OpenCode本体の通常保存先は `~/.local/share/opencode/opencode.db`。対応JSONLは
+  `opencode run --format json ... > opencode-session.jsonl` で明示保存する。`opencode export` は別形式。

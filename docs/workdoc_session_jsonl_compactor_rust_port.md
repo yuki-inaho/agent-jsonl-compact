@@ -298,7 +298,7 @@ cargo build --release
 | 配布 CI | `.github/workflows/release.yml` | `v*` タグで musl 静的バイナリを tarball+sha256 にし Releases へ添付 |
 | 品質 CI | `.github/workflows/ci.yml` | push/PR で fmt-check + clippy(-D warnings) + test |
 | インストーラ | `install.sh` | `curl\|bash` で OS/arch 判定→DL→sha256 検証→`~/.local/bin` へ配置 |
-| スキル | `skills/agent-jsonl-compact-reader/SKILL.md` | summary→必要箇所だけ段階読みするフロー(Claude/Codex 両対応) |
+| スキル | `skills/agent-jsonl-compact-reader/SKILL.md` | summary→必要箇所だけ段階読みするフロー(Codex/Claude/OpenCode対応) |
 | サブコマンド | `agent-jsonl-compact install-skills` | SKILL.md をバイナリ埋め込みし各エージェント skills へ配置(playwright-cli 流) |
 | 補助 | `--version` / release `strip` / justfile(`build-musl`/`dist`/`install-release`/`install-skills`) | 配布補助 |
 
@@ -321,3 +321,67 @@ cargo build --release
 | `install-skills`(両方 / `--codex-only` / 入力なしエラー) | 期待どおり |
 
 初版 release は `v0.1.0`。`dist/` は `just dist` のローカル生成物であり Git 管理対象にしない。
+
+## 11. OpenCode run JSONL 対応（2026-09-02）
+
+### 11.1 調査結果と入力境界
+
+作業環境の OpenCode 1.18.26 で `opencode debug paths` とCLI helpを確認した。
+
+| 項目 | 確認結果 |
+|---|---|
+| 通常の永続保存 | `~/.local/share/opencode/opencode.db` (SQLite)。JSONLは自動生成されない |
+| 対応入力 | `opencode run --format json ...` のstdoutを保存したNDJSON |
+| 非対応入力 | `opencode export` が出す単一JSON文書、SQLite DBそのもの |
+| イベント | `step_start`, `text`, `reasoning`, `tool_use`, `step_finish`, `error` |
+| 外形 | `{type, timestamp, sessionID, part}` またはerror時の `{..., error}` |
+
+実装根拠は OpenCode v1.18.26 の
+[`packages/opencode/src/cli/cmd/run.ts`](https://github.com/anomalyco/opencode/blob/v1.18.26/packages/opencode/src/cli/cmd/run.ts)。
+同実装は各イベントを1行ずつ `JSON.stringify(...) + EOL` でstdoutへ出す。OpenCode run JSONLは
+応答側の完了イベントストリームであり、ユーザープロンプト、モデル名、cwdは含まれない。
+抽出器は欠落情報を推測せず、summaryのmodelsは空配列、sessionのcwd/versionはnullとする。
+
+推奨取得例:
+
+```bash
+opencode run --format json "<prompt>" > opencode-session.jsonl
+agent-jsonl-compact -i opencode-session.jsonl -o temp/session_extracts
+```
+
+ストリームが中断した場合や `step_finish` が無い場合でも、到着済み行だけを抽出する。
+完全な会話履歴やユーザープロンプトが必要な用途では、run JSONLだけでは情報不足である。
+
+### 11.2 正規化規約
+
+| OpenCode type | 正規化event | 保持内容 |
+|---|---|---|
+| `step_start` | `turn_start` | `messageID`, part ID |
+| `text` | `assistant` | `part.text` |
+| `reasoning` | `reasoning` | `part.text` |
+| `tool_use` | `tool_call` + `tool_output` | tool, callID, input, output/error, status |
+| `step_finish` | `turn_end` | reason, cost, tokens, messageID, part ID |
+| `error` | `error` | 表示用messageと元error object |
+
+`tool_use` はOpenCodeのstdoutではcompleted/error時に1イベントへ入力と結果が同居する。
+既存の共通event契約に合わせ、同じcall IDを持つcall/outputの2イベントへ分ける。
+`step_finish.tokens` と `cost` はusage情報なので削除せず `turn_end` に保持する。
+
+### 11.3 実装と回帰テスト
+
+- `SessionFormat::OpenCode` と `--format opencode` を追加。
+- `sessionID` + OpenCode type + `part/error` を使う内容ベース自動判定を追加。
+- `tests/fixtures/opencode_sample.jsonl` は公式スキーマに沿う合成データのみ。実セッション由来情報なし。
+- `tests/integration.rs::extracts_opencode_run_sample` で自動判定、session合成、tool分離、
+  tokens/cost、Markdown表示を検証。
+- Unix millisecond timestampをMarkdownのUTC `HH:MM:SS` として表示。
+- README、オンボーディング、readerスキル、`just demo` を3形式へ同期。
+
+検証結果:
+
+```text
+cargo fmt --check                         success
+cargo clippy --all-targets -- -D warnings success
+cargo test                                12 passed (unit 6 + integration 6)
+OpenCode fixture --stats                  detected format: opencode
+```

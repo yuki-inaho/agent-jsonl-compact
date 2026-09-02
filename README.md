@@ -2,7 +2,8 @@
 
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
-OpenAI Codex CLI rollout JSONL と Anthropic Claude Code transcript JSONL を自動判定し、
+OpenAI Codex CLI rollout JSONL、Anthropic Claude Code transcript JSONL、OpenCode
+`run --format json` の NDJSON を自動判定し、
 会話・思考・ツール実行だけを compact JSONL / Markdown / summary JSON に抽出する単一 Rust CLI です。
 巨大なセッションログを「軽量化してから段階的に読む」ための CLI と、それを使うエージェントスキル
 (`agent-jsonl-compact-reader`)をまとめて提供します。
@@ -88,6 +89,18 @@ agent-jsonl-compact \
   --out-chars 2000
 ```
 
+OpenCode は通常、セッションを `~/.local/share/opencode/opencode.db` に保存し、JSONLを
+自動作成しません。対応する入力は `run --format json` のstdoutを保存したものです。
+
+```bash
+opencode run --format json "<prompt>" > opencode-session.jsonl
+agent-jsonl-compact -i opencode-session.jsonl -o temp/session_extracts
+```
+
+このストリームは `step_start` / `text` / `reasoning` / `tool_use` / `step_finish` /
+`error` を含みます。ユーザープロンプトとモデル名は出力されないため、抽出器はそれらを
+推測しません。`opencode export` は単一のJSON文書であり、このJSONL入力とは別形式です。
+
 サブコマンド / 情報:
 
 ```bash
@@ -114,7 +127,7 @@ agent-jsonl-compact --help
 ## Options (抽出)
 
 ```text
---format auto|codex|claude_code
+--format auto|codex|claude_code|opencode
 --channel terminal|api|both      # Codex のみ有効
 --msg-chars N                    # 0 は全文保持
 --out-chars N                    # 0 は全文保持
@@ -148,7 +161,7 @@ just                 # タスク一覧(= just --list)
 just build           # release バイナリをビルド
 just test            # 全テスト(unit + integration)
 just check           # fmt-check + clippy(-D warnings) + test(= CI と同じゲート)
-just demo            # build → 同梱 fixture で利用例を実行(./demo-out に3種出力)
+just demo            # build → 3形式の同梱 fixture で利用例を実行
 just stats <f>       # 形式とレコード型分布のみ表示
 just build-musl      # musl 静的バイナリをビルド(配布用)
 just dist            # 配布 tarball + sha256 を dist/ に生成
@@ -165,6 +178,8 @@ just install-skills  # reader スキルを各エージェントへ配置
   Claude Code の `ai-title`/`mode`/`attachment` 等 / 連続同一の重複。
 - 残す(シグナル): 全メッセージ全文(`--msg-chars 0`)・全ツール出力(`--out-chars 0`)・
   逐次 commentary・全ツール呼出。
+- OpenCode: 完了済み `tool_use` を `tool_call` + `tool_output` に分け、`step_finish` の
+  `tokens` / `cost` / `reason` を `turn_end` に保持する。
 - サイズ優先が必要なときだけ lossy ノブ(`--msg-chars N`/`--out-chars N`/`--elide-outputs`/
   `--channel api`)を明示的に足す。
 
@@ -185,7 +200,7 @@ just install-skills  # reader スキルを各エージェントへ配置
 src/main.rs       エントリポイント(run_cli を呼ぶだけ)
 src/lib.rs        モジュール公開・run_cli・公開 API(run / install_skills_into)
 src/cli.rs        CLI option と install-skills サブコマンド定義
-src/detect.rs     Codex / Claude Code 自動判定
+src/detect.rs     Codex / Claude Code / OpenCode 自動判定
 src/classify.rs   生 JSON レコードから正規化イベントへの展開
 src/clean.rs      keep set、truncate、dedup、elide
 src/render.rs     Markdown レンダリング
@@ -194,6 +209,7 @@ src/runner.rs     実行制御・集計・summary・ファイル出力・install
 src/util.rs       JSONL streaming と JSON helper
 
 skills/agent-jsonl-compact-reader/SKILL.md  reader スキル(ビルド時にバイナリへ埋め込み)
+tests/fixtures/*.jsonl                      3形式の合成fixture(実セッション由来なし)
 .github/workflows/ci.yml       fmt-check + clippy + test
 .github/workflows/release.yml  v* タグで musl tarball + sha256 を Releases へ
 install.sh                     prebuilt インストーラ(sha256 検証)

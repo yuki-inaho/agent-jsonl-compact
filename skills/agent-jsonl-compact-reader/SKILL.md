@@ -1,18 +1,17 @@
 ---
 name: agent-jsonl-compact-reader
 description: >-
-  Compact and read large Codex CLI / Claude Code session JSONL logs without
-  loading the raw file into context. Use when asked to read, summarize, inspect,
-  or investigate an existing session transcript — e.g.
-  ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl or
-  ~/.claude/projects/<proj>/<uuid>.jsonl — especially when the raw JSONL is large.
+  Compact and read large Codex CLI, Claude Code, or OpenCode run JSONL logs
+  without loading the raw file into context. Use when asked to read, summarize,
+  inspect, or investigate an existing session transcript, especially when the
+  raw JSONL is large.
   Triggers: 過去セッションのjsonlを読む/要約する, セッションログを軽量化して読み込む,
   rollout jsonl を読む, transcript jsonl を要約, agent-jsonl-compact で抽出.
 ---
 
 # agent-jsonl-compact-reader
 
-巨大な Codex / Claude Code セッション JSONL を、生のままコンテキストへ載せず
+巨大な Codex / Claude Code / OpenCode run セッション JSONL を、生のままコンテキストへ載せず
 `agent-jsonl-compact` バイナリで軽量化し、`summary.json` → 必要箇所だけ
 `transcript.md` / `clean.jsonl` の順に**段階的に読む**ためのスキル。
 
@@ -21,6 +20,7 @@ description: >-
 - 「この過去セッションの jsonl を読んで / 要約して」
 - `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` や
   `~/.claude/projects/<proj>/<uuid>.jsonl` の内容把握・調査
+- `opencode run --format json` を保存したNDJSONの内容把握・調査
 - 生 JSONL が大きく、全文を読むとコンテキストを圧迫する場合
 
 入力の典型的な所在:
@@ -28,7 +28,12 @@ description: >-
 ```text
 Codex       ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl
 Claude Code ~/.claude/projects/<project-slug>/<uuid>.jsonl
+OpenCode    保存先は任意(opencode run --format json > opencode-session.jsonl)
 ```
+
+OpenCode 1.18系は通常 `~/.local/share/opencode/opencode.db` に永続化し、JSONLを自動保存しない。
+`opencode export` の単一JSON文書も対象外。対応入力が必要ならstdoutを明示的に保存する。
+OpenCode run JSONLにはユーザープロンプトとモデル名が含まれないため、抽出結果にも現れない。
 
 ## Step 0 — ensure the binary
 
@@ -95,7 +100,7 @@ agent-jsonl-compact -i <input.jsonl> -o temp/session_extracts \
 
 - `--elide-outputs` 肥大ツール出力を件数+先頭行へ畳む
 - `--channel api`(Codex のみ) API 本文中心に絞る
-- 形式が誤判定される場合のみ `--format codex|claude_code`
+- 形式が誤判定される場合のみ `--format codex|claude_code|opencode`
 
 ## Notes
 
