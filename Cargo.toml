@@ -1,6 +1,6 @@
 [package]
 name = "agent-jsonl-compact"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.74"
 description = "Compact OpenAI Codex CLI, Anthropic Claude Code, and OpenCode session JSONL into clean JSONL, Markdown, and summary JSON."
