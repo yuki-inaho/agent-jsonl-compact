@@ -29,10 +29,21 @@ pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
     ]
     .into_iter()
     .collect();
+    let opencode_types: HashSet<&'static str> = [
+        "step_start",
+        "text",
+        "reasoning",
+        "tool_use",
+        "step_finish",
+        "error",
+    ]
+    .into_iter()
+    .collect();
 
     let mut seen = 0usize;
     let mut codex_hits = 0usize;
     let mut claude_hits = 0usize;
+    let mut opencode_hits = 0usize;
 
     for_each_jsonl_record_until(path, |object| {
         if seen >= sample {
@@ -56,16 +67,26 @@ pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
         {
             claude_hits += 1;
         }
+        if object.contains_key("sessionID")
+            && opencode_types.contains(record_type)
+            && (object.contains_key("part") || object.contains_key("error"))
+        {
+            opencode_hits += 1;
+        }
 
         Ok(true)
     })?;
 
-    if claude_hits > codex_hits {
+    if opencode_hits > codex_hits && opencode_hits > claude_hits {
+        Ok(SessionFormat::OpenCode)
+    } else if claude_hits > codex_hits {
         Ok(SessionFormat::ClaudeCode)
     } else if codex_hits > 0 {
         Ok(SessionFormat::Codex)
     } else if claude_hits > 0 {
         Ok(SessionFormat::ClaudeCode)
+    } else if opencode_hits > 0 {
+        Ok(SessionFormat::OpenCode)
     } else {
         // 内容から判定できないとき(空 / 未知形式 / meta 行のみ)に限り、入力パスの
         // ヒントで補う。内容で決まる限りパスは見ない(リネーム・移動に強い既存挙動)。
@@ -76,6 +97,7 @@ pub fn detect_format(path: &Path, sample: usize) -> Result<SessionFormat> {
 /// 入力パスから形式を推定する補助シグナル。内容判定が不能なときだけ使う。
 /// Codex: `rollout-*.jsonl` または `~/.codex/` 配下。
 /// Claude Code: `~/.claude/` 配下(`projects/<id>.jsonl` 等)。
+/// OpenCode: `opencode-*.jsonl` / `opencode-*.ndjson`。
 fn hint_from_path(path: &Path) -> Option<SessionFormat> {
     let full = path.to_string_lossy();
     let name = path
@@ -86,6 +108,10 @@ fn hint_from_path(path: &Path) -> Option<SessionFormat> {
         Some(SessionFormat::Codex)
     } else if full.contains("/.claude/") {
         Some(SessionFormat::ClaudeCode)
+    } else if name.starts_with("opencode-")
+        && (name.ends_with(".jsonl") || name.ends_with(".ndjson"))
+    {
+        Some(SessionFormat::OpenCode)
     } else {
         None
     }
@@ -113,6 +139,10 @@ mod tests {
             Some(SessionFormat::ClaudeCode)
         );
         assert_eq!(hint_from_path(&PathBuf::from("/tmp/random.jsonl")), None);
+        assert_eq!(
+            hint_from_path(&PathBuf::from("/tmp/opencode-session.ndjson")),
+            Some(SessionFormat::OpenCode)
+        );
     }
 
     #[test]

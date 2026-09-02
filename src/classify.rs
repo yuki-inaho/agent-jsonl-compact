@@ -9,8 +9,118 @@ use serde_json::Value;
 pub fn classify(object: &JsonObject, format: SessionFormat) -> Vec<Event> {
     match format {
         SessionFormat::ClaudeCode => classify_claude(object),
+        SessionFormat::OpenCode => classify_opencode(object),
         SessionFormat::Codex | SessionFormat::Auto => classify_codex(object),
     }
+}
+
+fn classify_opencode(object: &JsonObject) -> Vec<Event> {
+    if let Some(err) = object.get("_parse_error").and_then(Value::as_str) {
+        return vec![event([
+            ("ts", Value::Null),
+            ("kind", string("parse_error")),
+            ("error", string(err)),
+        ])];
+    }
+
+    let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
+    let ts = clone_or_null(object.get("timestamp"));
+    let part = object.get("part").and_then(Value::as_object);
+
+    match record_type {
+        "step_start" => vec![event([
+            ("ts", ts),
+            ("kind", string("turn_start")),
+            ("turn_id", clone_or_null(map_get(part, "messageID"))),
+            ("step_id", clone_or_null(map_get(part, "id"))),
+        ])],
+        "step_finish" => vec![event([
+            ("ts", ts),
+            ("kind", string("turn_end")),
+            ("turn_id", clone_or_null(map_get(part, "messageID"))),
+            ("step_id", clone_or_null(map_get(part, "id"))),
+            ("reason", clone_or_null(map_get(part, "reason"))),
+            ("cost", clone_or_null(map_get(part, "cost"))),
+            ("tokens", clone_or_null(map_get(part, "tokens"))),
+        ])],
+        "text" => vec![event([
+            ("ts", ts),
+            ("kind", string("assistant")),
+            ("text", string(value_as_string(map_get(part, "text"), ""))),
+        ])],
+        "reasoning" => vec![event([
+            ("ts", ts),
+            ("kind", string("reasoning")),
+            ("text", string(value_as_string(map_get(part, "text"), ""))),
+        ])],
+        "tool_use" => classify_opencode_tool(ts, part),
+        "error" => {
+            let raw = object.get("error");
+            vec![event([
+                ("ts", ts),
+                ("kind", string("error")),
+                ("text", string(opencode_error_text(raw))),
+                ("error", clone_or_null(raw)),
+            ])]
+        }
+        _ => vec![event([
+            ("ts", ts),
+            ("kind", string("oc_other")),
+            ("oc_type", clone_or_null(object.get("type"))),
+        ])],
+    }
+}
+
+fn classify_opencode_tool(ts: Value, part: Option<&JsonObject>) -> Vec<Event> {
+    let state = object_field(part, "state");
+    let args = clone_or_null(map_get(state, "input"));
+    let cmd = command_from_args(&args);
+    let call_id = map_get(part, "callID").or_else(|| map_get(part, "id"));
+    let status = map_get(state, "status")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut out = vec![event([
+        ("ts", ts.clone()),
+        ("kind", string("tool_call")),
+        ("tool", clone_or_null(map_get(part, "tool"))),
+        ("call_id", clone_or_null(call_id)),
+        ("cmd", cmd.map(string).unwrap_or(Value::Null)),
+        ("args", args),
+        ("status", string(status)),
+    ])];
+
+    let output = match status {
+        "completed" => map_get(state, "output").map(|value| value_as_string(Some(value), "")),
+        "error" => map_get(state, "error").map(|value| value_as_string(Some(value), "")),
+        _ => None,
+    };
+    if let Some(output) = output {
+        out.push(event([
+            ("ts", ts),
+            ("kind", string("tool_output")),
+            ("call_id", clone_or_null(call_id)),
+            ("output", string(output)),
+            ("is_error", Value::Bool(status == "error")),
+        ]));
+    }
+    out
+}
+
+fn opencode_error_text(error: Option<&Value>) -> String {
+    let object = error.and_then(Value::as_object);
+    let data = object_field(object, "data");
+    if let Some(value) = [
+        map_get(data, "message"),
+        map_get(object, "message"),
+        map_get(object, "name"),
+    ]
+    .into_iter()
+    .flatten()
+    .next()
+    {
+        return value_as_string(Some(value), "");
+    }
+    value_as_string(error, "")
 }
 
 fn classify_codex(object: &JsonObject) -> Vec<Event> {

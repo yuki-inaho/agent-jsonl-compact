@@ -74,6 +74,41 @@ fn extracts_claude_sample() {
 }
 
 #[test]
+fn extracts_opencode_run_sample() {
+    let tmp = tempfile::tempdir().unwrap();
+    let outcome = run(base_cli(
+        fixture("opencode_sample.jsonl"),
+        tmp.path().to_path_buf(),
+        "opencode",
+    ))
+    .unwrap();
+    let RunOutcome::Extract(report) = outcome else {
+        panic!("expected extract outcome");
+    };
+    assert_eq!(report.format, SessionFormat::OpenCode);
+    assert_eq!(report.kept_events, 8);
+
+    let summary = fs::read_to_string(tmp.path().join("opencode.summary.json")).unwrap();
+    assert!(summary.contains("\"format\": \"opencode\""));
+    assert!(summary.contains("opencode-session-1"));
+
+    let clean = fs::read_to_string(tmp.path().join("opencode.clean.jsonl")).unwrap();
+    assert!(clean.contains("\"originator\":\"opencode\""));
+    assert!(clean.contains("\"kind\":\"assistant\""));
+    assert!(clean.contains("\"kind\":\"reasoning\""));
+    assert!(clean.contains("\"kind\":\"tool_call\""));
+    assert!(clean.contains("\"kind\":\"tool_output\""));
+    assert!(clean.contains("\"tokens\":{\"cache\""));
+    assert!(clean.contains("\"kind\":\"error\""));
+
+    let markdown = fs::read_to_string(tmp.path().join("opencode.transcript.md")).unwrap();
+    assert!(markdown.contains("format=opencode"));
+    assert!(markdown.contains("$ pwd"));
+    assert!(markdown.contains("reason=stop"));
+    assert!(markdown.contains("synthetic failure"));
+}
+
+#[test]
 fn install_skills_writes_skill_into_both_agents() {
     let home = tempfile::tempdir().unwrap();
     // 両エージェントの home を用意(無いと skip されるため)。

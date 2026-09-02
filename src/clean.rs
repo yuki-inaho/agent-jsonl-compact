@@ -53,6 +53,18 @@ const CLAUDE_KINDS: &[&str] = &[
     "parse_error",
 ];
 
+const OPENCODE_KINDS: &[&str] = &[
+    "session",
+    "assistant",
+    "reasoning",
+    "tool_call",
+    "tool_output",
+    "turn_start",
+    "turn_end",
+    "error",
+    "parse_error",
+];
+
 const DEDUP_TEXT_KINDS: &[&str] = &["user", "assistant", "api_user", "api_assistant"];
 
 pub fn keep_set(
@@ -62,6 +74,7 @@ pub fn keep_set(
 ) -> HashSet<String> {
     let mut keep: HashSet<String> = match format {
         SessionFormat::ClaudeCode => CLAUDE_KINDS.iter().map(|v| (*v).to_string()).collect(),
+        SessionFormat::OpenCode => OPENCODE_KINDS.iter().map(|v| (*v).to_string()).collect(),
         SessionFormat::Codex | SessionFormat::Auto => match channel {
             Channel::Terminal => TERMINAL_KINDS.iter().map(|v| (*v).to_string()).collect(),
             Channel::Api => API_KINDS.iter().map(|v| (*v).to_string()).collect(),

@@ -5,14 +5,14 @@ use std::path::PathBuf;
 #[command(
     name = "agent-jsonl-compact",
     version,
-    about = "Codex CLI / Claude Code session JSONL を compact JSONL・Markdown・summary JSON へ抽出します。"
+    about = "Codex CLI / Claude Code / OpenCode session JSONL を compact JSONL・Markdown・summary JSON へ抽出します。"
 )]
 pub struct Cli {
     /// サブコマンド。未指定時は抽出(従来動作)です。
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// rollout-*.jsonl / Claude Code <uuid>.jsonl。抽出時は必須です。
+    /// rollout-*.jsonl / Claude Code <uuid>.jsonl / OpenCode run JSONL。抽出時は必須です。
     #[arg(short = 'i', long = "input")]
     pub input: Option<PathBuf>,
 
@@ -81,6 +81,8 @@ pub enum SessionFormat {
     Auto,
     Codex,
     ClaudeCode,
+    #[value(name = "opencode")]
+    OpenCode,
 }
 
 impl SessionFormat {
@@ -89,6 +91,7 @@ impl SessionFormat {
             SessionFormat::Auto => "auto",
             SessionFormat::Codex => "codex",
             SessionFormat::ClaudeCode => "claude_code",
+            SessionFormat::OpenCode => "opencode",
         }
     }
 }

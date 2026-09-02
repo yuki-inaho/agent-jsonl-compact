@@ -48,7 +48,17 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                 display_field(event, "objective")
             )),
             "turn_start" => lines.push(format!("\n--- turn start ({ts}) ---")),
-            "turn_end" => lines.push(format!("--- turn end ({ts}) ---")),
+            "turn_end" => {
+                let reason = str_field(event, "reason")
+                    .filter(|value| !value.is_empty())
+                    .map(|value| format!(" reason={value}"))
+                    .unwrap_or_default();
+                let cost = str_field(event, "cost")
+                    .filter(|value| !value.is_empty())
+                    .map(|value| format!(" cost={value}"))
+                    .unwrap_or_default();
+                lines.push(format!("--- turn end ({ts}){reason}{cost} ---"));
+            }
             "turn_aborted" => lines.push(format!(
                 "\n--- turn aborted: {} ---",
                 display_field(event, "reason")
@@ -152,6 +162,10 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                 display_field(event, "item_type")
             )),
             "token_count" => lines.push("· token_count".to_string()),
+            "error" => lines.push(format!(
+                "\n❌ **error** ({ts})\n{}",
+                display_field(event, "text")
+            )),
             other => {
                 let mut extra = Map::new();
                 for (key, value) in event {
@@ -187,10 +201,22 @@ pub fn fence(body: &str, lang: &str) -> String {
 }
 
 fn hhmmss(value: Option<&Value>) -> String {
-    let Some(ts) = value.and_then(Value::as_str) else {
-        return String::new();
-    };
-    ts.get(11..19).unwrap_or("").to_string()
+    match value {
+        Some(Value::String(ts)) => ts.get(11..19).unwrap_or("").to_string(),
+        Some(Value::Number(ts)) => ts
+            .as_u64()
+            .map(|millis| {
+                let seconds = (millis / 1000) % 86_400;
+                format!(
+                    "{:02}:{:02}:{:02}",
+                    seconds / 3600,
+                    (seconds / 60) % 60,
+                    seconds % 60
+                )
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 fn str_field(event: &Event, key: &str) -> Option<String> {
@@ -209,11 +235,17 @@ fn display_field(event: &Event, key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::fence;
+    use super::{fence, hhmmss};
+    use serde_json::json;
 
     #[test]
     fn fence_uses_longer_delimiter_when_body_contains_backticks() {
         let rendered = fence("a ``` b", "");
         assert!(rendered.starts_with("````\n"));
+    }
+
+    #[test]
+    fn hhmmss_accepts_unix_milliseconds_from_opencode() {
+        assert_eq!(hhmmss(Some(&json!(3_723_000))), "01:02:03");
     }
 }
