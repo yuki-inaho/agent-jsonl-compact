@@ -51,6 +51,13 @@ curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main
 just install        # ~/.local/bin/agent-jsonl-compact
 ```
 
+このスキル自体はバイナリから各エージェントへ配置できる:
+
+```bash
+agent-jsonl-compact install-skills                 # ~/.claude/skills と ~/.codex/skills(存在する側)
+agent-jsonl-compact install-skills --claude-only   # または --codex-only
+```
+
 ## Step 1 — (任意) 形式とレコード分布だけ確認
 
 抽出せず load→detect→classify の結果だけ見たいとき:
@@ -68,7 +75,8 @@ agent-jsonl-compact -i <input.jsonl> --stats
 agent-jsonl-compact -i <input.jsonl> -o temp/session_extracts
 ```
 
-生成物（`<name>` は入力 stem、または `--name`）:
+生成物（`<name>` は入力 stem、または `--name`。`--format-out jsonl|md|both` で
+clean.jsonl / transcript.md の片方だけにできる。summary.json は常に出る）:
 
 ```text
 <name>.summary.json     形式 / 件数 / models / goals / 入力比などのメタ
@@ -99,8 +107,37 @@ agent-jsonl-compact -i <input.jsonl> -o temp/session_extracts \
 ```
 
 - `--elide-outputs` 肥大ツール出力を件数+先頭行へ畳む
-- `--channel api`(Codex のみ) API 本文中心に絞る
+- `--channel api`(Codex のみ) API 本文中心に絞る（`both` は terminal と api の両方）
 - 形式が誤判定される場合のみ `--format codex|claude_code|opencode`
+- 調査用に残したい場合だけ `--keep-token-count`（Codex token_count）/ `--no-dedup`（重複の畳み込み無効）
+
+## Codex の新しい rollout で本文が空になる場合
+
+`summary.json` の `kept_kind_counts` が `item_completed` と `reasoning` ばかりで、
+`transcript.md` に `📦 item_completed: AgentMessage` のような見出ししか無いときは、
+既定の `--channel terminal` が新しい Codex CLI のイベント本文を拾えていない。
+`--channel api`（または `both`）で抽出し直すと、ユーザー発言・アシスタント発言・
+`function_call` が本文付きで残る。出力名が衝突しないよう別ディレクトリへ出す:
+
+```bash
+agent-jsonl-compact -i <rollout.jsonl> -o temp/session_extracts_api --channel api
+```
+
+コードモードのツール実行（`response_item` の `custom_tool_call` / `custom_tool_call_output`）や
+エージェント間メッセージはどのチャネルでも抽出されない。`summary.json` の
+`raw_type_counts` に件数が出ていて中身が必要なときだけ、raw JSONL から該当行を直接抜く:
+
+```bash
+python3 - <rollout.jsonl> <<'PY'
+import json, sys
+for line in open(sys.argv[1]):
+    payload = json.loads(line).get("payload", {})
+    if payload.get("type") in ("custom_tool_call", "custom_tool_call_output"):
+        print(json.dumps(payload, ensure_ascii=False)[:2000])
+PY
+```
+
+reasoning は暗号化されている（`[encrypted]`）ため、どの方法でも復元できない。
 
 ## Notes
 
