@@ -8,6 +8,10 @@ OpenAI Codex CLI rollout JSONL、Anthropic Claude Code transcript JSONL、OpenCo
 巨大なセッションログを「軽量化してから段階的に読む」ための CLI と、それを使うエージェントスキル
 (`agent-jsonl-compact-reader`)をまとめて提供します。
 
+0.3.0 では、既存の抽出をそのまま残したうえで、会話を探して必要箇所だけ読む
+`sessions` / `view` / `search` を追加しました（[ADR 0001](docs/adr/0001-additive-session-viewer-cli.md)）。
+抽出は「保存して読む」、閲覧系は「stdout に返して読む」という別の用途です。
+
 移植元は次の Python スクリプトです(別リポジトリ)。
 
 ```text
@@ -120,6 +124,7 @@ Codexは実装タグを更新したとき、Claude CodeはCLI更新後、OpenCod
 ```bash
 agent-jsonl-compact install-skills [--claude-only|--codex-only]
 agent-jsonl-compact --version
+agent-jsonl-compact version --output json
 agent-jsonl-compact --help
 ```
 
@@ -152,6 +157,228 @@ agent-jsonl-compact --help
 --stats                          # 形式とレコード型分布のみ表示して終了
 --name <stem>                    # 出力ベース名(既定は入力 stem)
 ```
+
+## 閲覧CLI (0.3.0): 探す → 読む → 根拠へ戻る
+
+既存の抽出が「ファイルへ保存する」のに対し、`sessions` / `view` / `search` は
+**保存せず stdout へ返す**閲覧用のコマンドです。source は変更せず、cache や index も
+既定では作りません。詳細な設計判断は
+[ADR 0001](docs/adr/0001-additive-session-viewer-cli.md) /
+[ADR 0002](docs/adr/0002-cursor-and-resource-boundaries.md) にあります。
+
+最短経路:
+
+```bash
+agent-jsonl-compact sessions --provider codex --cwd /path/to/repo
+agent-jsonl-compact view --session codex:SESSION_ID --tail 30 --output jsonl
+agent-jsonl-compact search -i /path/rollout.jsonl --query keyword --context 2
+```
+
+### 版と更新日
+
+```bash
+agent-jsonl-compact --version            # semver のみ（従来と同じ）
+agent-jsonl-compact version --output json
+```
+
+`version --output json` は `version`、固定の `source_release_date`、
+`query_schema_version`、`cursor_version` を返します。更新日は **source の固定日**で、
+build 時刻でも GitHub Release の更新時刻でもありません（[ADR 0003](docs/adr/0003-version-and-release-metadata.md)）。
+
+### 1. 候補を探す — `sessions`
+
+```bash
+# cwd 完全一致（既定）。子ディレクトリも含めるなら --cwd-children
+agent-jsonl-compact sessions --provider codex --cwd /path/to/repo --limit 20
+
+# Claude Code も含める / 探索 root を明示する
+agent-jsonl-compact sessions --provider all --root ~/.claude/projects --output jsonl
+```
+
+- 探索対象は provider ごとの既知 root と、`--root` で明示した root のみです。
+  **OpenCode の run JSONL は既定 root では探しません**（`opencode.db` を推測しないため）。
+  使うときは `--root` で明示してください。
+- `--provider all` は codex / claude_code / opencode を対象にします。
+- `--scan-limit`（既定 10000）に達した場合は `status: partial` として未走査を明示します。
+- 表示は開始日時 (`started_at`) と最終 event 時刻 (`last_event_at`) を別々に返します。
+  mtime は実行中・停止中の判定には使いません。
+
+### 2. 必要箇所を読む — `view`
+
+```bash
+# 直近30件（filter 後の末尾、原文順）
+agent-jsonl-compact view --session codex:SESSION_ID --tail 30
+
+# ファイル指定 + 期間 + role
+agent-jsonl-compact view -i /path/rollout.jsonl \
+  --since 2026-10-21T00:00:00+09:00 --role user,assistant --output jsonl
+
+# 1 event を再読（表示上限と text_complete は維持）
+agent-jsonl-compact view -i /path/rollout.jsonl --event EVENT_ID --output jsonl
+```
+
+- 既定 scope は `messages` です。`--scope tools` で tool、`--scope all` でも
+  private reasoning・system・developer・compaction は出ません。
+- 既定の表示件数は 50 件、`--max-events`（primary + context + pair の総量）は 200 件です。
+- `--with-pair` を付けると、選択した tool 呼出しに対応する結果を `call_id` で併記します。
+  状態は `paired` / `pending_result`（走査完了後に不在を確認）/ `unknown_pair`（走査が
+  不完全で未着と断定できない）/ `orphan`（呼出し無しの結果）/ `not_rendered_budget`
+  （存在するが予算で未表示）の5つです。
+- 対応件数は `paired_total`（実総数）と `paired_event_ids`（保持した ID）を分けて返し、
+  打ち切り時は `paired_ids_truncated: true`、再入位置は `pair_reentry` で示します。
+  配列の長さを相手の総数と読み替えないでください。`scan.with_pair.incomplete` は
+  pair 走査自体が不完全だったことを示します。
+- `text_complete: false` は「表示が cut された」意味で、取得範囲が不完全という意味ではありません。
+
+### 3. 本文を検索する — `search`
+
+```bash
+agent-jsonl-compact search -i /path/rollout.jsonl \
+  --query contour_v2 --query "エラー" --context 2 --limit 10
+
+# 正規表現は明示したときだけ
+agent-jsonl-compact search -i /path/rollout.jsonl --query 'timeout|retry' --regex
+```
+
+- `--query` の繰返しは **OR**。各ヒットは `matched_queries` を持ちます。
+- `matched_ranges` は **原文 text に対する UTF-8 byte offset** です。表示が cut されていても
+  位置は原文基準です。
+- `--event EVENT_ID` は対象 event を絞るだけで、同じ予算のまま全文が返る保証はありません。
+  全文が必要なら `--max-output-bytes`（必要なら `--max-record-bytes`）を上げて再実行するか、
+  `source.byte_start` / `byte_end` で raw の該当範囲を直接読んでください。
+- `--context K` は hard scope 内の前後 K event。role や時刻の soft filter を越えた隣接 event は
+  `is_context: true` として明示されますが、reasoning / developer は決して含まれません。
+- 同じ event がヒットかつ他ヒットの文脈である場合は、**primary として1回だけ**出ます。
+
+### 4. 根拠と元位置
+
+event 行は次を持ちます。
+
+| field | 意味 |
+|---|---|
+| `event_id` | source 同一性 + raw 開始位置 + subevent から作る安定 ID |
+| `source.raw_line` | raw 行番号（1 始まり） |
+| `source.byte_start` / `byte_end` | raw byte 範囲（0 始まり・終端排他） |
+| `source.subevent_index` | 1 raw が複数 event になる場合の index |
+| `text_complete` | 表示本文が完全か |
+| `message_origin` | `human` / `framework` / `compaction` / `unknown`。**role が user でも human とは限らない** |
+
+### 5. 追記だけを読む — page cursor と append cursor
+
+```bash
+# 固定 snapshot の続き（前回 metadata の page_cursor）
+agent-jsonl-compact view -i /path/rollout.jsonl --cursor 'c1:...' --output jsonl
+
+# 走査完了後の追記だけ（前回 metadata の append_cursor）
+agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output jsonl
+```
+
+| | page cursor | append cursor |
+|---|---|---|
+| 用途 | 同じ snapshot の続き | 前回の完全行末より後の追記 |
+| 発行 | 未表示の primary が残っている | 全行を走査し未検査 gap が無い |
+| 注意 | 途中で append cursor は出ない | 未検査 record を飛ばして前進しない |
+
+- cursor は発行時の filter / query / scope に加えて **search の `--context` も保持**し、
+  再開時に再利用します（省略時は cursor の値、明示して異なる値なら `filter_mismatch`）。
+  **異なる filter を明示すると `cursor_invalid`（rc1, reason `filter_mismatch`）**、
+  同じ値の明示は競合ではありません。
+- `--limit` / `--tail` / `--max-events` / `--max-output-bytes` は表示条件なので、
+  cursor の同一性判定には含まれません。tail の後でも同じ filter で追記を読めます。
+- 置換（`generation_mismatch`）、切詰め（`truncated`）、境界書換え（`anchor_mismatch`）は
+  型付きエラー（`cursor_invalid`, rc1）で停止します。暗黙の先頭再読はしません。
+- 読み取り中に観測可能な変更があった場合は `status: partial` かつ `source_changed: true`
+  の rc1 として返し、append cursor を発行しません（無言の完了にしない）。
+- cursor は append-only 前提です。可視範囲外の prefix 全体の不変性までは保証しません。
+- cursor モードは Unix の file generation（`dev`+`inode`）を使います。
+  非 Unix では `cursor_unsupported_platform` で明示拒否します。
+
+### 6. 終了コードと出力の分離
+
+| rc | 意味 |
+|---|---|
+| `0` | 対象範囲を正常処理（正当な 0 件を含む） |
+| `1` | source / decode / 形式未確定 / partial / cursor 不正 / 実行中変更の検出 |
+| `2` | 引数・query 構文不正（`--regex` のコンパイル失敗、極小予算、旧フラグの誤用など） |
+
+- JSONL 出力は「event 行 + 最後に metadata 行1つ」。診断・進捗は **stderr** へ出し、
+  stdout に散文を混ぜません。
+- 0 件は「全対象を走査して 0 件」のときだけ確定します。未検査範囲が残る場合は `partial` です。
+- text 出力は ESC / OSC / C1 などの制御文字をエスケープします。tool 出力内の command は
+  決して実行しません。
+
+### 7. 予算と上限
+
+- `--max-output-bytes`（既定 32768、最小 8192）は **stdout + stderr の合計**です。
+  metadata・title・診断も含みます。収まらない場合は `budget_too_small`（rc2）で拒否し、
+  途中までの不正 JSON は出しません。
+- `--max-record-bytes`（既定 1 MiB）を超える行は `uninspected` として raw 範囲だけを返し、
+  `status: partial` / rc1、`append_cursor` は出しません。metadata の
+  `counts.uninspected.samples[].retry_cursor` を使って、より大きい上限で同じ位置から再読できます。
+- 入力 record 上限と表示上限は別です。表示 cut は `text_complete: false` であって partial ではありません。
+
+### 8. 読取 byte の読み方
+
+metadata の `scan` には次が出ます。
+
+| field | 意味 |
+|---|---|
+| `scan.read_bytes` | 主走査で論理的に消費した source byte |
+| `scan.total_read_bytes` | 主走査 + 補助走査（format 判定・metadata 探索・anchor 検証・pair）の合計 |
+| `scan.read_bytes_breakdown.main` / `.detect` / `.metadata` / `.anchor` / `.validation` / `.pair` | 上記の内訳 |
+| `scan.with_pair.passes` / `scan.with_pair.read_bytes` | pair 追加走査のパス数と読取量 |
+
+これらは **論理消費 byte** で、OS の物理 I/O 量でも速度でもありません。
+補助走査があるため `total_read_bytes` はファイルサイズを超えることがあります。
+`-i` と cursor の組み合わせでは provider / session を cursor から再利用し、旧 snapshot の
+anchor 近傍と追記分だけを読みます。ただし `--with-pair` を指定した場合は、対応付けのために
+同じ snapshot 内を最大2回追加で走査するため、この限りではありません（計測表の pair read を参照）。
+一方 `--session` は cursor を使う前にも catalog 探索を行うため、呼び出しごとにその探索コストを
+負担することがあり、追記分だけの O( suffix ) を保証するものではありません。
+
+### 9. 限定計測（合成入力）
+
+seed 42 で生成した合成入力（`claude_code`、110,088 records、69,234,347 B、
+input sha256 `0c64ec59…a74f39a`）を、**context / regex プロファイル修正前の計測候補**
+release バイナリ（sha256 `bc52b88d…4ed3ea`、linux）で測った例です。最終凍結 source の
+**検証済み候補バイナリ**は sha256 `7ee5e42b…`（source 側は runner `61f297b5…`）で、独立した
+テストで検証済みですが、この表の計測対象ではありません。
+**一般的な性能の証明でも、両者が同じ値であるという主張でもありません**。
+
+receipt には seed・生成パラメータ・record 件数・input の sha256・`binary_sha256`・
+debug/release・`rustc` 版・platform・cache 条件を残します。
+
+| ケース | 主走査 read | total read | wall | peak RSS | 出力 |
+|---|---|---|---|---|---|
+| view 先頭50件 | 23,603 B | 174,590 B | 0.0041 s | 4,652 KiB | 29,209 B |
+| search 全体・末尾ヒット1件 | 69,234,347 B | 69,385,462 B | 0.6577 s | 4,736 KiB | 3,076 B |
+| view --scope tools --with-pair | 179,464 B | 138,799,145 B | 2.1657 s | 4,736 KiB | 30,848 B |
+| append（3行追記） | 579 B | 1,413 B | 0.0027 s | 4,268 KiB | 3,853 B |
+
+いずれも**論理消費 byte**（OS 物理 I/O ではない）。cold/warm は未制御のため不明として扱います。
+`--with-pair` の total read 増は設計上の最大2パスによります。母集団は合成1種で、
+1 GB 級や実会話への一般化はしません。
+
+再現:
+
+```bash
+cargo build --release
+python3 scripts/benchmark_viewer.py generate --out temp/viewer_bench/input.jsonl
+python3 scripts/benchmark_viewer.py measure \
+  --input temp/viewer_bench/input.jsonl --out-dir temp/viewer_bench/out
+```
+
+### 10. 旧来の抽出はそのまま使える
+
+閲覧系の追加は legacy 抽出を置き換えません。従来のコマンドは schema・既定値・終了コードを
+維持しています。
+
+```bash
+agent-jsonl-compact -i /path/rollout.jsonl -o out --format-out both
+```
+
+`view -i FILE --format-out md` のように、**閲覧系へ旧フラグを渡すと rc2** になります
+（入力形式は `--format`、出力表現は `--output text|jsonl` で指定します）。
 
 ## Build from source
 
@@ -213,21 +440,39 @@ just install-skills  # reader スキルを各エージェントへ配置
 ```text
 src/main.rs       エントリポイント(run_cli を呼ぶだけ)
 src/lib.rs        モジュール公開・run_cli・公開 API(run / install_skills_into)
-src/cli.rs        CLI option と install-skills サブコマンド定義
-src/detect.rs     Codex / Claude Code / OpenCode 自動判定
+src/cli.rs        CLI option、抽出、query 系(subcommand)の引数定義
+src/detect.rs     Codex / Claude Code / OpenCode 自動判定(legacy 抽出用)
 src/classify.rs   生 JSON レコードから正規化イベントへの展開
 src/clean.rs      keep set、truncate、dedup、elide
 src/render.rs     Markdown レンダリング
 src/counter.rs    生レコード型・正規化 kind の集計
-src/runner.rs     実行制御・集計・summary・ファイル出力・install-skills 実装
+src/runner.rs     抽出の実行制御・集計・summary・ファイル出力・install-skills 実装
 src/util.rs       JSONL streaming と JSON helper
 
+src/query/reader.rs     bounded 物理行 reader(snapshot 境界・record 上限・pending/invalid 区別)
+src/query/cursor.rs     page / append cursor のエンコード・検証
+src/query/detect.rs     閲覧系の provider 判定(fail closed)
+src/query/normalize.rs  provider 差の正規化(origin / private / mirror 識別)
+src/query/select.rs     hard scope と soft filter
+src/query/filter.rs     role / phase / 時刻 filter
+src/query/toolpair.rs   call_id 対応付け(pending / orphan / budget 状態)
+src/query/source.rs     session 探索・source 同一性・metadata 抽出
+src/query/sessions.rs   `sessions` の候補列挙
+src/query/output.rs     text / JSONL の直列化
+src/query/runner.rs     閲覧系の実行制御・予算・metadata
+src/query/version.rs    版と固定 source release date の単一情報源
+
+docs/adr/                        設計判断の記録(0001 閲覧CLI / 0002 cursor と資源 / 0003 版)
+docs/requirements/               要件と受入ケース
 skills/agent-jsonl-compact-reader/SKILL.md  reader スキル(ビルド時にバイナリへ埋め込み)
 tests/fixtures/*.jsonl                      3形式の合成fixture(実セッション由来なし)
+tests/viewer_e2e.rs                         A01–A12 の受入 E2E
+tests/viewer_integrity_e2e.rs               並行読取りの整合性 E2E(Linux)
+tests/viewer_support/mod.rs                 隔離 HOME/XDG と fixture 生成
+scripts/benchmark_viewer.py                 合成入力の生成と限定計測
 .github/workflows/ci.yml       fmt-check + clippy + test
 .github/workflows/release.yml  v* タグで musl tarball + sha256 を Releases へ
 install.sh                     prebuilt インストーラ(sha256 検証)
 ```
 
 > SKILL.md はバイナリに `include_str!` で埋め込まれます。スキル本文を変更したら再ビルドが必要です。
-```

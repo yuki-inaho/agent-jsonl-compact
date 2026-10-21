@@ -131,6 +131,10 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
                 install_skills_into(&home, *claude_only, *codex_only)
                     .map(RunOutcome::InstalledSkills)
             }
+            // Viewer commands are dispatched in `run_cli` / `query::runner`.
+            Command::Sessions(_) | Command::View(_) | Command::Search(_) | Command::Version(_) => {
+                bail!("viewer command must be dispatched through run_cli")
+            }
         };
     }
 
