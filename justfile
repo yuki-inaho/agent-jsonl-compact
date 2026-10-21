@@ -70,3 +70,10 @@ install-release:
 # reader スキルを各エージェントへインストール(CLI 内蔵 install-skills)
 install-skills: build
     ./target/release/agent-jsonl-compact install-skills
+
+# viewer の限定合成計測(releaseバイナリ, 固定seed42, temp配下)
+bench-viewer: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 scripts/benchmark_viewer.py generate --out temp/viewer_bench/input.jsonl
+    python3 scripts/benchmark_viewer.py measure --input temp/viewer_bench/input.jsonl --out-dir temp/viewer_cli_20261021/step7/bench

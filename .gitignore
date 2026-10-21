@@ -11,3 +11,6 @@ dist/
 
 # Serena tool metadata
 .serena/
+
+# Local work evidence / workdocs (never commit)
+/temp/
