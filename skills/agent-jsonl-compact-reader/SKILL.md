@@ -1,12 +1,15 @@
 ---
 name: agent-jsonl-compact-reader
 description: >-
-  Compact and read large Codex CLI, Claude Code, or OpenCode run JSONL logs
-  without loading the raw file into context. Use when asked to read, summarize,
-  inspect, or investigate an existing session transcript, especially when the
-  raw JSONL is large.
-  Triggers: 過去セッションのjsonlを読む/要約する, セッションログを軽量化して読み込む,
-  rollout jsonl を読む, transcript jsonl を要約, agent-jsonl-compact で抽出.
+  Discover, view, search, and live-tail large Codex CLI, Claude Code, or OpenCode
+  session JSONL logs without loading the raw file into context, and trace tool-call
+  evidence back to raw byte positions. Use when asked to find a past session, read or
+  summarize a transcript, search within a session, read appended events of a running
+  session, or verify which commands actually ran.
+  Triggers: 過去セッションのjsonlを探す/読む/要約する, セッション候補を探す,
+  セッションを検索する, 実行中セッションの追記を読む, tool 呼出しの根拠を辿る,
+  セッションログを軽量化して読み込む, rollout jsonl を読む, transcript jsonl を要約,
+  agent-jsonl-compact で抽出.
 ---
 
 # agent-jsonl-compact-reader
@@ -14,6 +17,10 @@ description: >-
 巨大な Codex / Claude Code / OpenCode run セッション JSONL を、生のままコンテキストへ
 載せずに読むためのスキル。0.3.0 以降は **閲覧系コマンド**で「探す → 必要箇所を読む →
 根拠の raw 位置へ戻る」を行い、必要なら従来の**忠実 export** を併用する。
+
+本スキルは `agent-jsonl-compact` 0.3.0 の CLI を基準に記述している。来歴は配布元
+リポジトリ（https://github.com/yuki-inaho/agent-jsonl-compact）と Step 0 の
+`version --output json` で確認する。旧版では閲覧系が無いため Step 7 へ回る。
 
 ## When to use
 
@@ -39,14 +46,22 @@ OpenCode run JSONL にはユーザープロンプトとモデル名が含まれ�
 ## Step 0 — バイナリと版を確認する
 
 ```bash
-command -v agent-jsonl-compact && agent-jsonl-compact --version
-agent-jsonl-compact version --output json   # source_release_date / schema 版
+command -v agent-jsonl-compact
+agent-jsonl-compact --version   # まず版だけ見る。0.2.x に version サブコマンドは無い
 ```
 
 **閲覧系（`sessions` / `view` / `search` / `version`）は 0.3.0 以降**にしかない。
-`--version` が 0.2.x 以下なら:
-- そのバイナリを更新する（このスキルは global インストールを勝手に書き換えない）、または
-- 閲覧系を使わず、下記 Step 7 の legacy 抽出（`-i/-o`）へフォールバックする。
+`--version` の結果で分岐する:
+
+- **0.3.0 以降** — 来歴を記録する（この出力を根拠として残す）:
+
+  ```bash
+  agent-jsonl-compact version --output json   # source_release_date / schema 版
+  ```
+
+- **0.2.x 以下** — `version` サブコマンドは未対応なので**実行しない**。
+  閲覧系も使わず、下記 Step 7 の legacy 抽出（`-i/-o`）へフォールバックする。
+  バイナリを更新する場合も、このスキルが global インストールを勝手に書き換えない。
 
 無ければ導入（どちらか）:
 
@@ -55,11 +70,12 @@ curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main
 just install        # リポジトリ内でソースから
 ```
 
-スキル自体はバイナリから配置できる:
+スキル自体はバイナリから配置できる。**対応エージェントが 2 つだけ**なので、
+スキル集の `install.sh`（`--agent all` で Claude/Codex/OpenCode の 3 つ）と混同しない:
 
 ```bash
-agent-jsonl-compact install-skills                 # 両方(存在する側)
-agent-jsonl-compact install-skills --claude-only   # または --codex-only
+agent-jsonl-compact install-skills                 # ~/.claude/skills と ~/.codex/skills（存在する側）
+agent-jsonl-compact install-skills --claude-only   # または --codex-only（OpenCode は対象外）
 ```
 
 ## Step 1 — セッション候補を探す（`sessions`）
@@ -77,6 +93,8 @@ agent-jsonl-compact sessions --provider all --output jsonl
   走査中の record が invalid / uninspected だった場合も含む。metadata の
   `scan.scan_limit_reached`・`records_invalid`・`records_uninspected` を見て理由を区別し、
   候補の網羅性を主張しない。
+- `--session` が `session_ambiguous` / `session_not_found` で失敗したら、**先頭候補を推測で
+  採用しない**。`--root` を狭めるか、対象ファイルを `-i <file>` で直接指定して再実行する。
 
 ## Step 2 — 必要箇所だけ読む（`view`）
 
@@ -92,17 +110,24 @@ agent-jsonl-compact view -i <input.jsonl> --since 2026-10-21T00:00:00+09:00 \
 - `--with-pair` で tool 呼出しと結果を `call_id` で併記する。
   `pending_result`（結果未着）/ `orphan`（呼出し無しの結果）/ `not_rendered_budget`
   （存在するが予算で未表示）を区別する。**rc0 でも依頼作業が完了したとは判断しない。**
+  `view` の rc0 は「閲覧処理が成立した」だけであり、成功の証明ではない。
+  tool 結果本文・対象プロセスの終了コード・成果物の実在を確認する
+  （エラーフラグが無いことも成功の証明ではない）。
 - `text_complete: false` は「表示が cut された」だけ。取得範囲の欠落ではない。
 
 ## Step 3 — 本文を検索する（`search`）
 
 ```bash
 agent-jsonl-compact search -i <input.jsonl> \
-  --query contour_v2 --query "エラー" --context 2 --limit 10
+  --query sample_marker --query "エラー" --context 2 --limit 10
 agent-jsonl-compact search -i <input.jsonl> --query 'timeout|retry' --regex
 ```
 
 - `--query` の繰返しは **OR**。`matched_queries` でどの語に一致したか分かる。
+- **既定 scope は `messages`**。tool 呼出し・tool 結果の本文を探すときは
+  `--scope tools`（または `all`）を明示する。0 件は「存在しない」ではなく
+  「その scope に無い」なので、scope を変えて再検索する。tool 呼出しと結果を
+  対応づけたいときは `--with-pair` も付ける。
 - `matched_ranges` は **原文 text の UTF-8 byte offset**。表示が cut されていても
   位置は原文基準である。
 - `--event EVENT_ID` は**その event に絞る**だけで、同じ予算のまま全文が返る保証はない。
@@ -141,6 +166,9 @@ JSONL 出力の event は次を持つ。**推測で本文を要約するより�
   未保持分は `pair_reentry`（raw line / byte 開始）から辿る。
 - 終端がまだ書き込み中で newline が無い PendingTail は `pending_result` のままで、
   `incomplete` を立てない（未完の末尾と証明の欠落は別）。
+- 完了済み snapshot しか無い OpenCode ログなどでは、生の streaming call が記録されて
+  いなければ call/result の相手を復元できない。`unknown_pair` / `orphan` を
+  「未着だった」と断定する材料にしない（無い記録は復元できない）。
 
 ## Step 5 — 追記だけを読む（page / append cursor）
 
@@ -165,7 +193,7 @@ agent-jsonl-compact view -i <input.jsonl> --after-cursor 'c1:...' --output jsonl
 
 | rc | 意味 | 取るべき行動 |
 |---|---|---|
-| `0` | 正常処理（正当な 0 件を含む） | 結果を読む |
+| `0` | 正常処理（正当な 0 件を含む） | 結果を読む。ただし「閲覧が成立した」だけで、依頼作業の成功を意味しない |
 | `1` | partial / 形式未確定 / source 不正 / cursor 不正 | metadata の `status` と `counts` を見る。未検査範囲を「0件」と読み替えない |
 | `2` | 引数・query 構文不正 | 引数を直す（極小 `--max-output-bytes` もここ） |
 
@@ -188,6 +216,10 @@ agent-jsonl-compact -i <rollout.jsonl> -o temp/session_extracts_api --channel ap
 
 生成物は `<name>.clean.jsonl` / `<name>.transcript.md` / `<name>.summary.json`。
 `--msg-chars` / `--out-chars` / `--elide-outputs` はサイズ優先のときだけ明示する。
+
+**legacy export は閲覧系の除外規則を適用しない。** reasoning や system / developer /
+compaction 由来の内部テキストが成果物に含まれ得る。依頼された読み取り範囲を守り、
+引用・共有は必要な範囲に限定する（viewer の除外を legacy 出力へ読み替えない）。
 
 Codex の新しい rollout で本文が空に見えるときは `--channel api`（または `both`）を使う。
 code mode の `custom_tool_call` / `custom_tool_call_output` は legacy 抽出では落ちるため、
