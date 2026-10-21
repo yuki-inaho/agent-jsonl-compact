@@ -739,7 +739,7 @@ fn a12_unchanged_source_scans_completely() {
         before_meta.len()
     );
     assert!(
-        read_bytes as u64 >= size,
+        read_bytes >= size,
         "a full sentinel search must consume at least one logical pass over the whole fixture \
          (read={read_bytes}, size={size})"
     );
