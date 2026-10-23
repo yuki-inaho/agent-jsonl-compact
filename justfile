@@ -39,12 +39,12 @@ weekly-check:
 smoke-release: build
     bash scripts/smoke-release.sh ./target/release/agent-jsonl-compact
 
-# ビルド→3形式の合成 fixture で利用例を実行。build から利用例までの導線。
+# ビルド→3形式の合成 fixture で利用例を実行(既定は clean のみなので全出力を明示)
 demo: build
     @rm -rf demo-out
-    ./target/release/agent-jsonl-compact -i tests/fixtures/codex_sample.jsonl  -o demo-out
-    ./target/release/agent-jsonl-compact -i tests/fixtures/claude_sample.jsonl -o demo-out
-    ./target/release/agent-jsonl-compact -i tests/fixtures/opencode_sample.jsonl -o demo-out
+    ./target/release/agent-jsonl-compact -i tests/fixtures/codex_sample.jsonl  -o demo-out --format-out both --summary
+    ./target/release/agent-jsonl-compact -i tests/fixtures/claude_sample.jsonl -o demo-out --format-out both --summary
+    ./target/release/agent-jsonl-compact -i tests/fixtures/opencode_sample.jsonl -o demo-out --format-out both --summary
     @echo "=== demo-out ===" && ls -la demo-out
 
 # 形式とレコード型分布のみ表示(抽出はしない)

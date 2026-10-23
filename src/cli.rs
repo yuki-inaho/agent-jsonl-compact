@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "agent-jsonl-compact",
     version,
-    about = "Codex CLI / Claude Code / OpenCode session JSONL を compact JSONL・Markdown・summary JSON へ抽出します。",
+    about = "Codex CLI / Claude Code / OpenCode session JSONL を compact JSONL / Markdown / summary JSON へ抽出します(既定は compact JSONL のみ)。",
     args_conflicts_with_subcommands = true
 )]
 pub struct Cli {
@@ -53,9 +53,13 @@ pub struct Cli {
     #[arg(long = "elide-outputs")]
     pub elide_outputs: bool,
 
-    /// 出力形式。summary JSON は常に出力します。
-    #[arg(long = "format-out", value_enum, default_value = "both")]
+    /// 出力形式。既定は jsonl(.clean.jsonl のみ)です。
+    #[arg(long = "format-out", value_enum, default_value = "jsonl")]
     pub format_out: OutputFormat,
+
+    /// summary JSON(.summary.json)も出力します。既定では出力しません。
+    #[arg(long = "summary")]
+    pub summary: bool,
 
     /// 形式とレコード型分布だけ表示して終了します。
     #[arg(long = "stats")]

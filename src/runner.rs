@@ -214,17 +214,6 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
             .unwrap_or_else(|| "session".to_string())
     });
 
-    let summary = build_summary(
-        &args,
-        &input,
-        format,
-        &raw_type_counter,
-        &kind_counter_all,
-        &kept_kind_counter,
-        &models,
-        &kept,
-    )?;
-
     let mut written = Vec::new();
     if matches!(args.format_out, OutputFormat::Jsonl | OutputFormat::Both) {
         let path = out_dir.join(format!("{base}.clean.jsonl"));
@@ -243,13 +232,25 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
         written.push(path);
     }
 
-    let summary_path = out_dir.join(format!("{base}.summary.json"));
-    fs::write(
-        &summary_path,
-        format!("{}\n", serde_json::to_string_pretty(&summary)?),
-    )
-    .with_context(|| format!("failed to write {}", summary_path.display()))?;
-    written.push(summary_path);
+    if args.summary {
+        let summary = build_summary(
+            &args,
+            &input,
+            format,
+            &raw_type_counter,
+            &kind_counter_all,
+            &kept_kind_counter,
+            &models,
+            &kept,
+        )?;
+        let summary_path = out_dir.join(format!("{base}.summary.json"));
+        fs::write(
+            &summary_path,
+            format!("{}\n", serde_json::to_string_pretty(&summary)?),
+        )
+        .with_context(|| format!("failed to write {}", summary_path.display()))?;
+        written.push(summary_path);
+    }
 
     let output_bytes = written
         .iter()

@@ -22,6 +22,11 @@ matrix. It also adds the versioning policy
 documentation policy ([ADR 0005](docs/adr/0005-bilingual-documentation.en.md)). The CLI
 behavior, output schema, and cursor version are unchanged from 0.3.0.
 
+Version 0.4.0 changes the default extraction output to `<name>.clean.jsonl` only
+(breaking). Transcript and summary JSON are written only when `--format-out md|both` or
+`--summary` is specified. The clean schema, extraction options, and exit codes are
+unchanged.
+
 The original implementation is the following Python script (separate repository):
 
 ```text
@@ -116,16 +121,18 @@ ln -sfn "$PWD/skills/agent-jsonl-compact-reader" ~/.codex/skills/agent-jsonl-com
 
 ## Usage
 
-Extraction (default behavior):
+Extraction (default behavior). By default, only `<out_dir>/<stem>.clean.jsonl` is written.
 
 ```bash
 agent-jsonl-compact -i <path/to/session.jsonl> -o <out_dir>
 
 agent-jsonl-compact -i <path/to/session.jsonl> --stats
 
+# Add --format-out md|both for the transcript, and --summary for summary JSON
 agent-jsonl-compact \
   -i ~/.codex/sessions/2026/06/07/rollout-xxx.jsonl \
   -o temp/session_extracts \
+  --format-out both --summary \
   --msg-chars 4000 \
   --out-chars 2000
 ```
@@ -176,14 +183,32 @@ Specify positive values only when you need to reduce size further.
 
 `<name>` is the input file stem, or the value passed to `--name`.
 
+By default, only one file is written:
+
 ```text
 <name>.clean.jsonl
-<name>.transcript.md
-<name>.summary.json
 ```
 
-Even when `--format-out jsonl` or `--format-out md` is specified, summary JSON is always
-written.
+Additional outputs are opt-in:
+
+| Output | Flag |
+|---|---|
+| `<name>.transcript.md` | `--format-out md` or `--format-out both` |
+| `<name>.summary.json` | `--summary` |
+
+```bash
+# clean + transcript
+agent-jsonl-compact -i session.jsonl -o out --format-out both
+
+# clean + transcript + summary
+agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
+
+# add summary only
+agent-jsonl-compact -i session.jsonl -o out --summary
+```
+
+`--format-out md` writes only the transcript; `--format-out jsonl` (the default) writes
+only clean JSONL. Summary JSON is written only when `--summary` is specified.
 
 ## Options (extraction)
 
@@ -195,7 +220,8 @@ written.
 --elide-outputs                  # fold large tool outputs into counts and first lines
 --keep-token-count               # keep Codex token_count
 --no-dedup                       # disable duplicate folding
---format-out jsonl|md|both
+--format-out jsonl|md|both       # default jsonl (clean only)
+--summary                        # also write summary JSON
 --stats                          # print format and record type distribution, then exit
 --name <stem>                    # output base name (default: input stem)
 ```
@@ -429,11 +455,12 @@ python3 scripts/benchmark_viewer.py measure \
 
 ### 10. Legacy extraction still works
 
-The viewer addition does not replace legacy extraction. Existing commands keep their
-schema, defaults, and exit codes.
+The viewer addition does not replace legacy extraction. The legacy clean schema,
+extraction options, and exit codes are unchanged. The default file set is now clean only;
+request the transcript / summary explicitly when needed.
 
 ```bash
-agent-jsonl-compact -i /path/rollout.jsonl -o out --format-out both
+agent-jsonl-compact -i /path/rollout.jsonl -o out --format-out both --summary
 ```
 
 Passing a legacy flag to a viewer command, such as `view -i FILE --format-out md`,

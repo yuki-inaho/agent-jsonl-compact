@@ -20,6 +20,10 @@ release workflow を Linux / macOS の matrix に変更しました。あわせ�
 （[ADR 0005](docs/adr/0005-bilingual-documentation.md)）を追加しました。CLI の挙動、
 出力 schema、cursor version は 0.3.0 から変わっていません。
 
+0.4.0 では抽出の既定出力を `<name>.clean.jsonl` のみに変更しました（Breaking）。
+transcript は `--format-out md|both`、summary は `--summary` を指定したときだけ出力します。
+clean schema、抽出オプション、終了コードは変わりません。
+
 移植元は次の Python スクリプトです(別リポジトリ)。
 
 ```text
@@ -110,16 +114,18 @@ ln -sfn "$PWD/skills/agent-jsonl-compact-reader" ~/.codex/skills/agent-jsonl-com
 
 ## Usage
 
-抽出(既定動作):
+抽出(既定動作)。既定では `<out_dir>/<stem>.clean.jsonl` のみを出力します。
 
 ```bash
 agent-jsonl-compact -i <path/to/session.jsonl> -o <out_dir>
 
 agent-jsonl-compact -i <path/to/session.jsonl> --stats
 
+# transcript も必要なら --format-out md|both、summary も必要なら --summary を追加
 agent-jsonl-compact \
   -i ~/.codex/sessions/2026/06/07/rollout-xxx.jsonl \
   -o temp/session_extracts \
+  --format-out both --summary \
   --msg-chars 4000 \
   --out-chars 2000
 ```
@@ -166,13 +172,32 @@ agent-jsonl-compact --help
 
 `<name>` は入力ファイル名の stem、または `--name` で指定した値です。
 
+既定では次の 1 ファイルだけを出力します。
+
 ```text
 <name>.clean.jsonl
-<name>.transcript.md
-<name>.summary.json
 ```
 
-`--format-out jsonl` または `--format-out md` を指定した場合でも、summary JSON は常に出力します。
+追加出力は明示的に指定します。
+
+| 出力 | 指定 |
+|---|---|
+| `<name>.transcript.md` | `--format-out md` または `--format-out both` |
+| `<name>.summary.json` | `--summary` |
+
+```bash
+# clean + transcript
+agent-jsonl-compact -i session.jsonl -o out --format-out both
+
+# clean + transcript + summary
+agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
+
+# summary だけを追加
+agent-jsonl-compact -i session.jsonl -o out --summary
+```
+
+`--format-out md` は transcript のみ、`--format-out jsonl`（既定）は clean のみを出力します。
+summary は `--summary` を指定したときだけ出力されます。
 
 ## Options (抽出)
 
@@ -184,7 +209,8 @@ agent-jsonl-compact --help
 --elide-outputs                  # 肥大ツール出力を件数と先頭行へ畳む
 --keep-token-count               # Codex token_count を保持
 --no-dedup                       # 重複畳み込みを無効化
---format-out jsonl|md|both
+--format-out jsonl|md|both       # 既定 jsonl(clean のみ)
+--summary                        # summary JSON も出力
 --stats                          # 形式とレコード型分布のみ表示して終了
 --name <stem>                    # 出力ベース名(既定は入力 stem)
 ```
@@ -401,11 +427,12 @@ python3 scripts/benchmark_viewer.py measure \
 
 ### 10. 旧来の抽出はそのまま使える
 
-閲覧系の追加は legacy 抽出を置き換えません。従来のコマンドは schema・既定値・終了コードを
-維持しています。
+閲覧系の追加は legacy 抽出を置き換えません。従来の clean schema・抽出オプション・
+終了コードは維持しています。出力ファイルの既定は clean のみに変更されたため、
+transcript / summary が必要な場合は明示してください。
 
 ```bash
-agent-jsonl-compact -i /path/rollout.jsonl -o out --format-out both
+agent-jsonl-compact -i /path/rollout.jsonl -o out --format-out both --summary
 ```
 
 `view -i FILE --format-out md` のように、**閲覧系へ旧フラグを渡すと rc2** になります

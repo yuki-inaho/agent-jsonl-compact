@@ -2334,23 +2334,54 @@ fn a11_legacy_outputs_and_exit_codes_stable() {
         );
         assert!(!clean.contains("schema_version"), "legacy schema untouched");
     }
-    // All output flags still work on the legacy path.
+    // The default output is clean JSONL only.
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codex_sample.jsonl");
-    for extra in [
-        vec!["--format-out", "jsonl"],
-        vec!["--format-out", "both"],
-        vec!["--channel", "api"],
-        vec!["--channel", "both"],
-        vec!["--no-dedup"],
-        vec!["--msg-chars", "10"],
-    ] {
-        let out_dir = sandbox
-            .path()
-            .join(format!("flag-{}", extra.join("-").replace('/', "_")));
+    let default_dir = sandbox.path().join("legacy-default");
+    ok(
+        &sandbox,
+        &[
+            "-i",
+            src.to_str().unwrap(),
+            "-o",
+            default_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(default_dir.join("codex_sample.clean.jsonl").exists());
+    assert!(!default_dir.join("codex_sample.transcript.md").exists());
+    assert!(!default_dir.join("codex_sample.summary.json").exists());
+
+    // Explicit output selection: clean, transcript, summary.
+    let cases: [(&[&str], bool, bool, bool); 9] = [
+        (&["--format-out", "jsonl"], true, false, false),
+        (&["--format-out", "md"], false, true, false),
+        (&["--format-out", "both"], true, true, false),
+        (&["--summary"], true, false, true),
+        (&["--format-out", "both", "--summary"], true, true, true),
+        (&["--format-out", "md", "--summary"], false, true, true),
+        (&["--channel", "api"], true, false, false),
+        (&["--no-dedup"], true, false, false),
+        (&["--msg-chars", "10"], true, false, false),
+    ];
+    for (index, (extra, clean, markdown, summary)) in cases.iter().enumerate() {
+        let out_dir = sandbox.path().join(format!("flag-{index}"));
         let mut args = vec!["-i", src.to_str().unwrap(), "-o", out_dir.to_str().unwrap()];
         args.extend(extra.iter().copied());
         ok(&sandbox, &args);
-        assert!(out_dir.join("codex_sample.summary.json").exists());
+        assert_eq!(
+            out_dir.join("codex_sample.clean.jsonl").exists(),
+            *clean,
+            "clean output for {extra:?}"
+        );
+        assert_eq!(
+            out_dir.join("codex_sample.transcript.md").exists(),
+            *markdown,
+            "transcript output for {extra:?}"
+        );
+        assert_eq!(
+            out_dir.join("codex_sample.summary.json").exists(),
+            *summary,
+            "summary output for {extra:?}"
+        );
     }
     // Missing input keeps legacy error exit 1.
     let missing = run(

@@ -15,8 +15,14 @@ test -f "$fixture"
 "$bin" -i "$fixture" --stats >/dev/null
 "$bin" view -i "$fixture" --tail 3 --output jsonl >/dev/null
 "$bin" search -i "$fixture" --query jsonl --context 1 --output jsonl >/dev/null
-"$bin" -i "$fixture" -o "$out" >/dev/null
-test -s "$out/claude_desktop_sample.summary.json"
-test -s "$out/claude_desktop_sample.transcript.md"
+
+# Default extraction must produce clean JSONL.
+"$bin" -i "$fixture" -o "$out/default" >/dev/null
+test -s "$out/default/claude_desktop_sample.clean.jsonl"
+
+# Explicit transcript output (works across 0.3.x and 0.4.x).
+"$bin" -i "$fixture" -o "$out/all" --format-out both >/dev/null
+test -s "$out/all/claude_desktop_sample.clean.jsonl"
+test -s "$out/all/claude_desktop_sample.transcript.md"
 
 echo "smoke OK: $bin"

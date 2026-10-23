@@ -6,9 +6,9 @@
 
 ## 1. プロジェクト概要と目的
 - **プロジェクト名称・領域:** `agent-jsonl-compact` — Codex CLI / Claude Code / OpenCode run のセッション JSONL を軽量化する単一 Rust CLI と、それを使うエージェントスキル。
-- **最終成果物:** 生 JSONL を自動判定し `*.clean.jsonl` / `*.transcript.md` / `*.summary.json` を生成する単一バイナリ。加えて `sessions` / `view` / `search` の閲覧 CLI、reader スキル(`agent-jsonl-compact-reader`)、Linux x86_64 musl / macOS arm64 / macOS x86_64 の prebuilt(`install.sh` / GitHub Releases)。
+- **最終成果物:** 生 JSONL を自動判定し、既定では `*.clean.jsonl` のみを出力する単一バイナリ。`--format-out md|both` で `*.transcript.md`、`--summary` で `*.summary.json` も生成する。加えて `sessions` / `view` / `search` の閲覧 CLI、reader スキル(`agent-jsonl-compact-reader`)、Linux x86_64 musl / macOS arm64 / macOS x86_64 の prebuilt(`install.sh` / GitHub Releases)。
 - **ビジネス背景・価値:** 巨大なセッションログを生のままコンテキストへ載せず「軽量化 → 段階読み」でトークンを節約する。`slack-knowledge-rag` 等の周辺ツールから PATH 上の CLI として利用される(`just extract-session` / `inspect-session`)。
-- **現時点の進捗サマリ:** `v0.3.1`(2026-10-23)リリース済み。`0.3.0` で `sessions` / `view` / `search` と cursor / provenance を追加し、`0.3.1` で macOS prebuilt、release matrix、ADR 0004/0005、日英ドキュメントを追加した。CLI 挙動・query schema v1・cursor v1 は 0.3.0 から不変。`確認済み`: リリース準備時にローカルで `just check`(fmt / clippy `-D warnings` / unit 54 + integration 7 + viewer E2E 37 + integrity 4 = 102 tests)と `just docs-check` を green で通過。macOS は `macos-latest`(arm64)と `macos-15-intel`(x86_64)で native `cargo test` + release binary smoke を実行する。CI と Release の現在状態は GitHub Actions / Releases を参照。
+- **現時点の進捗サマリ:** `v0.4.0`(2026-10-23)リリース済み。`0.3.0` で `sessions` / `view` / `search` と cursor / provenance、`0.3.1` で macOS prebuilt / release matrix / ADR 0004/0005 / 日英ドキュメント、`0.4.0` で抽出の既定出力を clean のみに変更（`--format-out md|both` / `--summary` で追加出力）した。`確認済み`: リリース準備時にローカルで `just check`(fmt / clippy `-D warnings` / unit 54 + integration 7 + viewer E2E 37 + integrity 4 = 102 tests)と `just docs-check` を green で通過。macOS は `macos-latest`(arm64)と `macos-15-intel`(x86_64)で native `cargo test` + release binary smoke を実行する。CI と Release の現在状態は GitHub Actions / Releases を参照。
 
 ## 2. クリティカルな要求・制約
 > 「壊してはいけない」品質・仕様ラインを箇条書きで列挙します。

@@ -4,10 +4,19 @@
 
 `agent-jsonl-compact` の主な変更を記録します。英語版を正本とし、本書は日本語版です。
 
-## Unreleased
+## 0.4.0 — 2026-10-23
+
+Source release date: **2026-10-23**（固定のリリース日。build 時刻ではありません）。
+
+### Breaking
+
+- 抽出の既定出力を `<name>.clean.jsonl` のみに変更。`<name>.transcript.md` は
+  `--format-out md|both`、`<name>.summary.json` は `--summary` を指定したときだけ出力する。
+  clean schema、その他の抽出オプション、終了コードは不変。
 
 ### 追加
 
+- summary JSON を明示的に出力する `--summary` フラグ。
 - macOS native E2E: `macos-latest`（arm64）と `macos-15-intel`（x86_64）の両方で
   `cargo test` を実行し、続けて release バイナリの smoke test を行う。
 - `tests/fixtures/claude_desktop_sample.jsonl`: sanitize 済みの実 Claude Code / Desktop

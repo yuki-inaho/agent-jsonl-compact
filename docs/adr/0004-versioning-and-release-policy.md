@@ -54,6 +54,8 @@ SemVer の仕様上 0.y.z は任意の変更を含み得るが、本プロジェ
   終了コードは維持した。
 - `0.3.1`: patch。macOS prebuilt、release matrix、ADR 0004/0005、日英ドキュメントを追加。
   query schema / cursor / CLI 挙動は不変。
+- `0.4.0`: minor（0.x の破壊的変更）。抽出の既定出力を clean のみに変更し、transcript は
+  `--format-out md|both`、summary は `--summary` を明示する形にした。clean schema は不変。
 
 互換性契約として明示的に守るもの:
 

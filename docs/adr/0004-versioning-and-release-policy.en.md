@@ -57,6 +57,9 @@ Examples:
   extraction schema, defaults, and exit codes.
 - `0.3.1`: patch. Added macOS prebuilt binaries, the release matrix, ADR 0004/0005, and
   bilingual documentation. Query schema / cursor / CLI behavior are unchanged.
+- `0.4.0`: minor (breaking change during 0.x). Extraction now writes clean JSONL only by
+  default; transcript and summary require `--format-out md|both` / `--summary`. The clean
+  schema is unchanged.
 
 Explicit compatibility contracts:
 

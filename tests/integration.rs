@@ -24,6 +24,7 @@ fn base_cli(input: PathBuf, out_dir: PathBuf, name: &str) -> Cli {
         no_dedup: false,
         elide_outputs: false,
         format_out: OutputFormat::Both,
+        summary: true,
         stats: false,
     }
 }

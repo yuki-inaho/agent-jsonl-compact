@@ -125,3 +125,10 @@ rtk proxy cargo +1.74.0 build
 - 公開済み `v0.3.0` の tag と assets は変更しない。
 - バージョンの分類基準は [ADR 0004](0004-versioning-and-release-policy.md)、日英ドキュメントの
   運用は [ADR 0005](0005-bilingual-documentation.md) に分離した。
+
+## 8. 追補 — 0.4.0（2026-10-23）
+
+- 0.4.0 は 0.x minor。抽出の既定出力を `<name>.clean.jsonl` のみに変更した（Breaking）。
+  transcript は `--format-out md|both`、summary は `--summary` で明示する。
+- query schema v1、cursor v1、legacy clean schema、終了コードは不変。
+- `SOURCE_RELEASE_DATE` は 0.4.0 も `2026-10-23`（同日リリースのため）。

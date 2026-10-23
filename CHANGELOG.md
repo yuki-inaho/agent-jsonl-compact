@@ -4,10 +4,19 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
-## Unreleased
+## 0.4.0 — 2026-10-23
+
+Source release date: **2026-10-23** (fixed release date; not a build timestamp).
+
+### Breaking
+
+- Extraction now writes only `<name>.clean.jsonl` by default. Pass `--format-out md|both`
+  to write `<name>.transcript.md`, and `--summary` to write `<name>.summary.json`.
+  The clean schema, other extraction options, and exit codes are unchanged.
 
 ### Added
 
+- `--summary` opt-in flag for summary JSON output.
 - Native macOS E2E: `cargo test` runs on both `macos-latest` (arm64) and
   `macos-15-intel` (x86_64), followed by a release-binary smoke test.
 - `tests/fixtures/claude_desktop_sample.jsonl`: a sanitized real Claude Code / Desktop
