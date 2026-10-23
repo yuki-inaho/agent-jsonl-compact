@@ -269,7 +269,7 @@ metadataには、filter条件、走査した範囲、取得時の末尾境界、
 - 入力 record `--max-record-bytes` 既定 1 MiB
 - `sessions` の `--scan-limit` 既定 10000
 - 意味的 filter のエンコード上限 2048 byte（cursor サイズ有界）
-- query schema v1、cursor v1、固定 `source_release_date = 2026-10-21`
+- query schema v1、cursor v1、固定 `source_release_date = 2026-10-21`（0.3.0 時点。0.3.1 は `2026-10-23` で schema/cursor は不変）
 
 ### 9.4 未実施・P1
 

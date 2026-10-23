@@ -1,5 +1,7 @@
 # agent-jsonl-compact
 
+**日本語** | [English](README.en.md)
+
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
 OpenAI Codex CLI rollout JSONL、Anthropic Claude Code transcript JSONL、OpenCode
@@ -12,25 +14,48 @@ OpenAI Codex CLI rollout JSONL、Anthropic Claude Code transcript JSONL、OpenCo
 `sessions` / `view` / `search` を追加しました（[ADR 0001](docs/adr/0001-additive-session-viewer-cli.md)）。
 抽出は「保存して読む」、閲覧系は「stdout に返して読む」という別の用途です。
 
+0.3.1 は配布とドキュメントの改善版です。macOS（Apple Silicon / Intel）の prebuilt を追加し、
+release workflow を Linux / macOS の matrix に変更しました。あわせてバージョニング基準
+（[ADR 0004](docs/adr/0004-versioning-and-release-policy.md)）と日英ドキュメント方針
+（[ADR 0005](docs/adr/0005-bilingual-documentation.md)）を追加しました。CLI の挙動、
+出力 schema、cursor version は 0.3.0 から変わっていません。
+
 移植元は次の Python スクリプトです(別リポジトリ)。
 
 ```text
 skills/session-transcript-extractor/scripts/extract_session_jsonl.py
 ```
 
+## Documentation
+
+- [ドキュメント索引 (日本語)](docs/README.md) / [Documentation index (English)](docs/README.en.md)
+- [LLM オンボーディング (日本語)](docs/ONBOARDING.md) / [LLM onboarding (English)](docs/ONBOARDING.en.md)
+- [リリースとバージョニング (日本語)](docs/RELEASING.md) / [Releasing and versioning (English)](docs/RELEASING.en.md)
+- [ADR 索引 (日本語)](docs/adr/README.md) / [ADR index (English)](docs/adr/README.en.md)
+
 ## Install (prebuilt)
 
-Rust/cargo 不要。GitHub Releases の Linux x86_64 musl 静的バイナリを `~/.local/bin` へ入れます。
+Rust/cargo 不要。GitHub Releases の prebuilt バイナリを `~/.local/bin` へ入れます。
+`install.sh` が OS / arch を判定し、対応する tarball を sha256 検証して展開します。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash
 ```
 
+| プラットフォーム | target | archive |
+|---|---|---|
+| Linux x86_64 | `x86_64-unknown-linux-musl` | `agent-jsonl-compact-x86_64-unknown-linux-musl.tar.gz` |
+| macOS Apple Silicon | `aarch64-apple-darwin` | `agent-jsonl-compact-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `x86_64-apple-darwin` | `agent-jsonl-compact-x86_64-apple-darwin.tar.gz` |
+
+各 archive には `README.md` / `LICENSE` が入り、Release には `.sha256` が付きます。上記以外の環境は
+下記 [Build from source](#build-from-source) を使ってください。
+
 バージョン固定やインストール先変更は、パイプ先の `bash` へ環境変数を渡します。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh \
-  | AJC_VERSION=v0.1.0 INSTALL_DIR=~/bin bash
+  | AJC_VERSION=v0.3.1 INSTALL_DIR=~/bin bash
 ```
 
 | 環境変数 | 意味 | 既定 |
@@ -38,8 +63,14 @@ curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main
 | `AJC_VERSION` | 取得する release タグ | 最新 release |
 | `INSTALL_DIR` | インストール先 | `~/.local/bin` |
 
-対応プラットフォームは Linux x86_64(musl)のみです。tarball は sha256 で検証します。
-他環境は下記 [Build from source](#build-from-source) を使ってください。
+macOS のバイナリは toolchain による ad-hoc 署名のみで、notarization はしていません。
+ブラウザ経由で archive を保存した場合に Gatekeeper が隔離したときは、次を実行してください。
+
+```bash
+xattr -d com.apple.quarantine ~/.local/bin/agent-jsonl-compact
+```
+
+`install.sh` は Linux の `sha256sum`、macOS の `shasum -a 256` のどちらでも検証します。
 
 ## Skill: agent-jsonl-compact-reader
 
@@ -395,13 +426,17 @@ just build-musl                  # musl 静的バイナリ
 just dist                        # tarball + sha256 を dist/ に生成(CI と同等)
 ```
 
+macOS の配布物は release workflow が `aarch64-apple-darwin` と `x86_64-apple-darwin` の
+両方をビルドします。ローカルで確認する場合はホスト arch 向けに `cargo build --release`、
+cross build する場合は `rustup target add` のうえ `--target` を指定してください。
+
 ## Tasks (justfile)
 
 ```bash
 just                 # タスク一覧(= just --list)
 just build           # release バイナリをビルド
 just test            # 全テスト(unit + integration)
-just check           # fmt-check + clippy(-D warnings) + test(= CI と同じゲート)
+just check           # fmt-check + clippy(-D warnings) + test + docs-check(= CI と同じゲート)
 just demo            # build → 3形式の同梱 fixture で利用例を実行
 just stats <f>       # 形式とレコード型分布のみ表示
 just build-musl      # musl 静的バイナリをビルド(配布用)
@@ -409,6 +444,8 @@ just dist            # 配布 tarball + sha256 を dist/ に生成
 just install         # ローカルビルドを ~/.local/bin へ
 just install-release # 手元の install.sh で prebuilt を ~/.local/bin へ
 just install-skills  # reader スキルを各エージェントへ配置
+just docs-check      # 日英ドキュメントのペアと相互リンクを検査
+just weekly-check    # 最新タグ以降の差分を確認し、リリース要否を表示
 ```
 
 ## S/N (signal vs noise) policy
@@ -462,17 +499,24 @@ src/query/output.rs     text / JSONL の直列化
 src/query/runner.rs     閲覧系の実行制御・予算・metadata
 src/query/version.rs    版と固定 source release date の単一情報源
 
-docs/adr/                        設計判断の記録(0001 閲覧CLI / 0002 cursor と資源 / 0003 版)
+docs/adr/                        設計判断の記録(0001 閲覧CLI / 0002 cursor と資源 / 0003 版 / 0004 バージョニング / 0005 二言語ドキュメント)
 docs/requirements/               要件と受入ケース
+docs/README.md / README.en.md    ドキュメント索引(日本語 / English)
+docs/ONBOARDING.md / .en.md      LLM オンボーディング(日本語 / English)
+docs/RELEASING.md / .en.md       週次チェックとリリース手順(日本語 / English)
+docs/adr/README.md / .en.md      ADR 索引(日本語 / English)
+CHANGELOG.md / CHANGELOG.ja.md   変更履歴(English canonical / 日本語)
 skills/agent-jsonl-compact-reader/SKILL.md  reader スキル(ビルド時にバイナリへ埋め込み)
 tests/fixtures/*.jsonl                      3形式の合成fixture(実セッション由来なし)
 tests/viewer_e2e.rs                         A01–A12 の受入 E2E
 tests/viewer_integrity_e2e.rs               並行読取りの整合性 E2E(Linux)
 tests/viewer_support/mod.rs                 隔離 HOME/XDG と fixture 生成
 scripts/benchmark_viewer.py                 合成入力の生成と限定計測
-.github/workflows/ci.yml       fmt-check + clippy + test
-.github/workflows/release.yml  v* タグで musl tarball + sha256 を Releases へ
-install.sh                     prebuilt インストーラ(sha256 検証)
+scripts/weekly-release-check.sh             最新タグ以降の差分とリリース要否を表示
+scripts/check-docs.sh                       日英ドキュメントのペアと相互リンクを検査
+.github/workflows/ci.yml       fmt-check + clippy + test / macOS 2 target の release build
+.github/workflows/release.yml  v* タグで Linux musl + macOS (arm64/x86_64) tarball + sha256 を Releases へ
+install.sh                     prebuilt インストーラ(Linux/macOS, sha256 検証)
 ```
 
 > SKILL.md はバイナリに `include_str!` で埋め込まれます。スキル本文を変更したら再ビルドが必要です。

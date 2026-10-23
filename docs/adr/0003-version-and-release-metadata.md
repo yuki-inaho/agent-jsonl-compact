@@ -114,3 +114,14 @@ rtk proxy cargo +1.74.0 build
 - `source_release_date` は「この source が 0.3.0 として固定された日」であり、
   個々の機能の実装日でも、build 日でも、公開日でもない。
 - CI の実行結果は本 ADR には含めない。必須ゲートとして定義するのみである。
+
+## 7. 追補 — 0.3.1（2026-10-23）
+
+- 0.3.1 は配布のみの patch。query schema v1、cursor v1、legacy schema、終了コードは
+  0.3.0 から不変。
+- `SOURCE_RELEASE_DATE` は 0.3.1 の固定 source date `2026-10-23` に更新した。
+- `release.yml` は Linux x86_64 musl に加え、macOS `aarch64-apple-darwin` /
+  `x86_64-apple-darwin` を matrix build し、同じ Release に添付する。
+- 公開済み `v0.3.0` の tag と assets は変更しない。
+- バージョンの分類基準は [ADR 0004](0004-versioning-and-release-policy.md)、日英ドキュメントの
+  運用は [ADR 0005](0005-bilingual-documentation.md) に分離した。

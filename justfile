@@ -25,7 +25,15 @@ lint:
     cargo clippy --all-targets -- -D warnings
 
 # 品質ゲート一括
-check: fmt-check lint test
+check: fmt-check lint test docs-check
+
+# 日英ドキュメントのペアと相互リンクを検査
+docs-check:
+    bash scripts/check-docs.sh
+
+# 最新タグ以降の差分を確認し、リリース要否を表示
+weekly-check:
+    bash scripts/weekly-release-check.sh
 
 # ビルド→3形式の合成 fixture で利用例を実行。build から利用例までの導線。
 demo: build

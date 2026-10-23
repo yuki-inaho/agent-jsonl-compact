@@ -1,35 +1,58 @@
 #!/usr/bin/env bash
-# agent-jsonl-compact installer (prebuilt Linux x86_64 musl binary)
+# agent-jsonl-compact installer (prebuilt Linux x86_64 musl / macOS arm64 / macOS x86_64)
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/yuki-inaho/agent-jsonl-compact/main/install.sh | bash
 #
 # Environment:
-#   AJC_VERSION   install a specific tag (e.g. v0.1.0). Default: latest release.
+#   AJC_VERSION   install a specific tag (e.g. v0.3.1). Default: latest release.
 #   INSTALL_DIR   install directory. Default: ~/.local/bin
 set -euo pipefail
 
 REPO="yuki-inaho/agent-jsonl-compact"
 BIN="agent-jsonl-compact"
-TARGET="x86_64-unknown-linux-musl"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${AJC_VERSION:-latest}"
 
 err()  { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 
-# --- platform guard (this installer ships Linux x86_64 musl only) ---
+# --- platform detection ---
 os="$(uname -s)"
 arch="$(uname -m)"
-[ "$os" = "Linux" ] || err "unsupported OS: $os. Build from source: https://github.com/${REPO}"
-case "$arch" in
-  x86_64 | amd64) : ;;
-  *) err "unsupported arch: $arch (only x86_64). Build from source: https://github.com/${REPO}" ;;
-esac
 
-for tool in curl tar sha256sum mktemp; do
+case "$os" in
+  Linux)
+    case "$arch" in
+      x86_64 | amd64) TARGET="x86_64-unknown-linux-musl" ;;
+      *) err "unsupported Linux arch: $arch (supported: x86_64). Build from source: https://github.com/${REPO}" ;;
+    esac
+    ;;
+  Darwin)
+    case "$arch" in
+      arm64 | aarch64) TARGET="aarch64-apple-darwin" ;;
+      x86_64) TARGET="x86_64-apple-darwin" ;;
+      *) err "unsupported macOS arch: $arch (supported: arm64, x86_64). Build from source: https://github.com/${REPO}" ;;
+    esac
+    ;;
+  *)
+    err "unsupported OS: $os. Build from source: https://github.com/${REPO}"
+    ;;
+esac
+info "platform: ${os} ${arch} (${TARGET})"
+
+for tool in curl tar mktemp; do
   command -v "$tool" >/dev/null 2>&1 || err "required tool not found: $tool"
 done
+
+# --- checksum tool (GNU coreutils or macOS shasum) ---
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | awk '{print $1}'; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+else
+  err "required tool not found: sha256sum or shasum"
+fi
 
 # --- resolve version ---
 if [ "$VERSION" = "latest" ]; then
@@ -54,7 +77,7 @@ curl -fsSL "${base}/${asset}.sha256" -o "${tmp}/${asset}.sha256" \
 
 info "verifying checksum"
 expected="$(awk '{print $1}' "${tmp}/${asset}.sha256")"
-actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
+actual="$(sha256 "${tmp}/${asset}")"
 [ -n "$expected" ] || err "empty checksum"
 [ "$expected" = "$actual" ] || err "checksum mismatch (expected ${expected}, got ${actual})"
 
@@ -66,6 +89,11 @@ src="$(find "$tmp" -type f -name "$BIN" | head -1)"
 mkdir -p "$INSTALL_DIR"
 install -m 0755 "$src" "${INSTALL_DIR}/${BIN}"
 info "installed: ${INSTALL_DIR}/${BIN}"
+
+if [ "$os" = "Darwin" ]; then
+  echo "note: if macOS blocks the binary, remove the quarantine attribute:"
+  echo "      xattr -d com.apple.quarantine \"${INSTALL_DIR}/${BIN}\""
+fi
 
 # --- PATH hint ---
 case ":${PATH}:" in

@@ -2455,7 +2455,7 @@ fn a11_version_consistency() {
     let json = ok(&sandbox, &["version", "--output", "json"]);
     let value: Value = serde_json::from_str(json.stdout.trim()).unwrap();
     assert_eq!(value["version"].as_str(), Some(cargo_version));
-    assert_eq!(value["source_release_date"].as_str(), Some("2026-10-21"));
+    assert_eq!(value["source_release_date"].as_str(), Some("2026-10-23"));
     assert_eq!(value["query_schema_version"].as_u64(), Some(1));
     let changelog =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("CHANGELOG.md")).unwrap();
@@ -2463,7 +2463,7 @@ fn a11_version_consistency() {
         changelog.contains(cargo_version),
         "CHANGELOG must mention {cargo_version}"
     );
-    assert!(changelog.contains("2026-10-21"));
+    assert!(changelog.contains("2026-10-23"));
     let cargo_toml =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
     assert!(cargo_toml.contains(&format!("version = \"{cargo_version}\"")));

@@ -1,6 +1,36 @@
 # Changelog
 
+**English** | [日本語](CHANGELOG.ja.md)
+
 All notable changes to `agent-jsonl-compact` are recorded here.
+
+## 0.3.1 — 2026-10-23
+
+Source release date: **2026-10-23** (fixed release date; not a build timestamp).
+
+### Added
+
+- Prebuilt macOS artifacts: `aarch64-apple-darwin` (Apple Silicon) and
+  `x86_64-apple-darwin` (Intel), each published as `.tar.gz` + `.sha256`.
+- `install.sh` detects Linux x86_64 musl and macOS arm64/x86_64, and verifies
+  checksums with `sha256sum` or macOS `shasum -a 256`.
+
+### Changed
+
+- `release.yml` builds a Linux/macOS matrix and publishes all assets to one GitHub Release.
+- CI builds both macOS targets on every push and pull request.
+- Added [ADR 0004](docs/adr/0004-versioning-and-release-policy.md) (versioning and release
+  policy) and [ADR 0005](docs/adr/0005-bilingual-documentation.md) (bilingual docs policy).
+- README / ONBOARDING / RELEASING / ADR index now have Japanese/English pairs, with
+  Japanese as the default and English in `*.en.md`.
+- `just weekly-check` / `scripts/weekly-release-check.sh` reports changes since the latest
+  tag and whether a release is needed; `just docs-check` verifies doc pairs.
+
+### Notes
+
+- No CLI behavior, output schema, cursor version, or query schema changes since 0.3.0.
+- macOS binaries are ad-hoc signed by the toolchain and are not notarized; see README.
+- The `SKILL.md` update merged after v0.3.0 is embedded in 0.3.1 binaries.
 
 ## 0.3.0 — 2026-10-21
 
