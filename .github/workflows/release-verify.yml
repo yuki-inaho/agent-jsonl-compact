@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify (default: latest)
+        description: "Release tag to verify (default: latest)"
         required: false
         type: string
 
