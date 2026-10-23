@@ -103,8 +103,10 @@ agent-jsonl-compact-aarch64-apple-darwin.tar.gz      (+ .sha256)
 agent-jsonl-compact-x86_64-apple-darwin.tar.gz       (+ .sha256)
 ```
 
-`release-verify.yml` は Release published 時に、Linux / macOS arm64 / macOS Intel の
-native runner で資産を download し、checksum と release バイナリの smoke test を実行します。
+`release-verify.yml` は Release published 時、または `release` workflow の成功後に、
+Linux / macOS arm64 / macOS Intel の native runner で資産を download し、checksum と
+release バイナリの smoke test を実行します。`GITHUB_TOKEN` で作成した Release は
+`release: published` を発火しないため、workflow 完了を契機にする経路も用意しています。
 手動で同じ検証を行う場合:
 
 ```bash

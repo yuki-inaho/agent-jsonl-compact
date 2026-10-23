@@ -107,9 +107,11 @@ agent-jsonl-compact-aarch64-apple-darwin.tar.gz      (+ .sha256)
 agent-jsonl-compact-x86_64-apple-darwin.tar.gz       (+ .sha256)
 ```
 
-On release publication, `release-verify.yml` downloads the assets on native Linux,
-macOS arm64, and macOS Intel runners, then verifies checksums and runs the release-binary
-smoke test. To run it manually:
+On release publication, or after a successful `release` workflow, `release-verify.yml`
+downloads the assets on native Linux, macOS arm64, and macOS Intel runners, then verifies
+checksums and runs the release-binary smoke test. A Release created with `GITHUB_TOKEN`
+does not trigger `release: published`, so the workflow-completion path is also provided.
+To run it manually:
 
 ```bash
 gh workflow run release-verify.yml -f tag=vX.Y.Z

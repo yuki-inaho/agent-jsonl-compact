@@ -4,6 +4,13 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
+## Unreleased
+
+### Changed
+
+- `release-verify` now also runs after a successful `release` workflow (`workflow_run`),
+  because a Release created with `GITHUB_TOKEN` does not trigger `release: published`.
+
 ## 0.4.0 — 2026-10-23
 
 Source release date: **2026-10-23** (fixed release date; not a build timestamp).

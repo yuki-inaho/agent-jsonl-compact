@@ -4,6 +4,13 @@
 
 `agent-jsonl-compact` の主な変更を記録します。英語版を正本とし、本書は日本語版です。
 
+## Unreleased
+
+### 変更
+
+- `release-verify` は `release` workflow の成功後にも実行する（`workflow_run`）。
+  `GITHUB_TOKEN` で作成した Release は `release: published` を発火しないため。
+
 ## 0.4.0 — 2026-10-23
 
 Source release date: **2026-10-23**（固定のリリース日。build 時刻ではありません）。
