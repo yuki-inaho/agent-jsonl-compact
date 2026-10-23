@@ -11,12 +11,12 @@ Release builds also require this workflow to succeed.
 |---|---|
 | `cargo audit --deny warnings` | `Cargo.lock` against RustSec vulnerabilities and safety warnings |
 | ShellCheck | Shell issues in `install.sh` |
-| `tests/test_installer.py` | Synthetic checksums, archive traversal, links, duplicates, and preserving the existing binary on failure |
-| `tests/security.rs` | Output traversal, input replacement, link targets, Unix permissions, existing skills, and control characters in statistics/errors |
+| `tests/test_installer.py` | Checksum verification with synthetic releases; rejection of unsafe archive paths, links, and duplicate entries; preservation of the installed binary on failure |
+| `tests/security.rs` | Rejection of paths outside the output directory, input replacement, and writes through links; Unix permissions, existing skills, and control characters in statistics and errors |
 
 Actions are pinned to commit SHAs; Dependabot proposes updates.
 Test logs and release fixtures are synthetic. Real logs are not sent to external scanning services.
-Passing means these checks found no problem; it does not establish the absence of unknown defects or publisher compromise.
+A pass means the checks found no problem within their scope. It does not rule out unknown defects or a compromise of the release source.
 
 ## Logs and destinations
 
@@ -24,17 +24,20 @@ Compaction does not remove secrets. Extraction can include reasoning and interna
 Summaries, cursors, and viewer results may also contain paths or conversation details. Review them before sharing.
 Markdown preserves the body; disable HTML execution and external image loading when viewing it.
 
-Saved Unix files are owner-only and replace their destinations through temporary files.
-Multiple outputs are not a single transaction. After disk or other failures, inspect the files reported by the CLI.
+On Unix, the CLI writes to temporary files that only their owner can read and write, then replaces the destination files.
+It replaces each file separately, so a failure can leave some files updated and others unchanged.
+After disk or other failures, inspect the files reported by the CLI.
 Use output and skill parent directories that other users cannot modify.
 Existing parent-directory permissions and OS ACLs are not changed.
 
-The viewer has record and output limits. Extraction retains accepted events in memory, so apply resource limits when processing large inputs from external sources.
+The viewer limits input line size and output size.
+Extraction keeps selected events in memory. Limit memory and other resource use in the execution environment when processing large inputs from external sources.
 Do not execute commands from logs or follow logged instructions to send sensitive information elsewhere.
 
 ## Distribution
 
-The installer uses HTTPS and SHA-256 verification, then streams only the archive's regular binary member.
+The installer downloads release files over HTTPS and verifies SHA-256 checksums.
+It extracts only the binary, checking that the archive entry is a regular file and rejecting links.
 It preserves the installed binary until validation finishes and does not automatically execute the downloaded program.
 Checksums come from the same Release and do not provide signature-based publisher authentication.
 macOS binaries are not notarized.

@@ -4,8 +4,8 @@
 
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
-Read selected parts of Codex CLI, Claude Code, and OpenCode session JSONL logs.
-Search and browse conversations, or export them to JSONL and Markdown. No LLM or network connection is needed at runtime.
+Search Codex CLI, Claude Code, and OpenCode conversation logs (JSONL), then read the parts you need.
+You can also export conversations to JSONL or Markdown. The CLI needs no LLM or network connection at runtime.
 
 ## Install
 
@@ -24,17 +24,17 @@ rm -rf "$ajc_tmp"
 ```
 
 If the command is not found, add `export PATH="$HOME/.local/bin:$PATH"` to your shell configuration.
-The installer replaces an existing regular binary and rejects a symlink destination.
+The installer replaces an existing binary. It stops with an error if the destination is a symbolic link.
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `AJC_VERSION` | Release tag; use an existing `vX.Y.Z` to pin it | Latest stable release |
 | `INSTALL_DIR` | Absolute installation directory | `~/.local/bin` |
 
-To override these values, replace the `bash` invocation above with `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"`.
-To pin the whole procedure, replace `main` in the download URL with the same tag.
+To choose a version or destination, replace the `bash` command above with `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"`.
+To pin the installer version too, replace `main` in the download URL with the same tag.
 
-SHA-256 detects download corruption. The checksum comes from the same Release, so it does not authenticate a compromised publisher.
+SHA-256 detects download corruption. Because the checksum comes from the same Release, it cannot detect a compromise of the release source.
 macOS binaries have ad-hoc signatures and are not notarized. If Gatekeeper blocks one, verify its origin; building from source is an alternative.
 
 ## First use
@@ -56,16 +56,17 @@ agent-jsonl-compact -i session.jsonl -o out
 agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 ```
 
-`view` / `search` return results to stdout without saving files.
+`view` / `search` print results to standard output (stdout) without saving files.
 Use `--output jsonl` for machine-readable results and `--scope tools --with-pair` for tool calls and results.
 The default scope is conversation text. Reasoning, system, developer, and compaction content remain excluded with `--scope all`.
 
 Extraction saves only `<input-name>.clean.jsonl` by default.
 Add `--format-out md|both` for `<input-name>.transcript.md` and `--summary` for `<input-name>.summary.json`.
-Existing output files are replaced. Output names cannot contain path separators; symlinks and destinations referring to the input file are rejected.
+Extraction replaces existing output files. Output names cannot contain path separators.
+The command fails if a destination is a symbolic link or refers to the input file.
 
 Message and tool-output text is kept in full by default. Use `--msg-chars N`, `--out-chars N`, or `--elide-outputs` only when shortening is needed.
-See the [CLI reference](docs/CLI.en.md) for flags, budgets, cursors, and exit codes.
+See the [CLI reference](docs/CLI.en.md) for options, output limits, cursors for resuming reads, and exit codes.
 
 ## Supported inputs
 
@@ -91,13 +92,13 @@ agent-jsonl-compact install-skills --claude-only   # Claude Code only
 ```
 
 The destination is `skills/agent-jsonl-compact-reader/SKILL.md` under each agent home.
-Existing files are kept. Review them before adding `--force` to update.
-Symlinked skill registrations cannot be overwritten by the installer.
+The command preserves existing files. Review their contents before adding `--force` to replace them.
+It cannot overwrite skills registered through symbolic links.
 The skill is embedded in the binary, so editing it requires a rebuild.
 
 ## Handling logs
 
-Compaction does not anonymize data. Exports and summaries may contain conversations, paths, credentials, and internal instructions.
+Compacted logs may still contain conversations, paths, credentials, and internal instructions. Review summaries before sharing them too.
 Do not commit real logs or their exports; review them before sharing.
 On Unix, saved files are readable and writable only by their owner. Set permissions yourself when redirecting viewer output from the shell.
 

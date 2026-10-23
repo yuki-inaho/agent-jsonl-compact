@@ -4,8 +4,8 @@
 
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
-Codex CLI・Claude Code・OpenCodeのセッションJSONLを、必要な箇所だけ読むためのCLIです。
-会話の検索・閲覧と、JSONLやMarkdownへの抽出に対応します。実行時にLLMやネットワーク接続は不要です。
+Codex CLI、Claude Code、OpenCodeの会話ログ（JSONL）を検索し、必要な箇所だけ読めるCLIです。
+会話をJSONLやMarkdownに保存することもできます。実行時にLLMやネットワーク接続は不要です。
 
 ## インストール
 
@@ -24,15 +24,15 @@ rm -rf "$ajc_tmp"
 ```
 
 コマンドが見つからない場合は、シェルの設定ファイルへ `export PATH="$HOME/.local/bin:$PATH"` を追加してください。
-インストーラーは既存の通常ファイルを置き換え、symlinkへの配置は拒否します。
+インストーラーは既存のバイナリを置き換えます。配置先がシンボリックリンクの場合はエラーで停止します。
 
 | 環境変数 | 用途 | 既定値 |
 |---|---|---|
 | `AJC_VERSION` | 取得するReleaseタグ。固定する場合は実在する `vX.Y.Z` を指定 | 最新の安定版 |
 | `INSTALL_DIR` | 配置先の絶対パス | `~/.local/bin` |
 
-変更する場合は、上の `bash` の呼出しを `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"` に置き換えてください。
-手順全体を固定するには、ダウンロードURLの `main` も同じタグに置き換えてください。
+版や配置先を指定するには、上の `bash` コマンドを `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"` に置き換えてください。
+インストーラーの版も固定する場合は、ダウンロードURLの `main` を同じタグに置き換えます。
 
 SHA-256照合でダウンロード破損を検出します。チェックサムも同じReleaseから取得するため、配布元の侵害を検出する署名検証ではありません。
 macOS版はad-hoc署名のみで、公証はしていません。Gatekeeperが止めた場合は入手元を確認し、必要ならソースからビルドしてください。
@@ -56,16 +56,17 @@ agent-jsonl-compact -i session.jsonl -o out
 agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 ```
 
-`view` / `search` はstdoutへ結果を返し、ファイルを保存しません。
+`view` / `search` は標準出力（stdout）に結果を表示し、ファイルを保存しません。
 `--output jsonl` で機械処理用の出力、`--scope tools --with-pair` でツールの呼出しと結果を確認できます。
 既定の閲覧範囲は会話本文です。reasoning・system・developer・compactionは、`--scope all` でも表示しません。
 
 抽出は既定で `<入力名>.clean.jsonl` のみを保存します。
 `--format-out md|both` で `<入力名>.transcript.md`、`--summary` で `<入力名>.summary.json` を追加できます。
-既存の同名ファイルは置き換えます。出力名にパス区切りは使えず、symlinkや入力ファイルと同じ実体への保存は拒否します。
+既存の同名ファイルは置き換えます。出力名にパス区切りは使えません。
+保存先がシンボリックリンクの場合や、入力ファイルと同じファイルを指す場合はエラーになります。
 
 本文とツール出力は既定で全文保持します。短くする場合だけ `--msg-chars N` / `--out-chars N` / `--elide-outputs` を指定してください。
-詳しいフラグ・上限・cursor・終了コードは [CLIリファレンス](docs/CLI.md) にまとめています。
+オプション、出力の上限、途中から読み直すためのカーソル、終了コードは [CLIリファレンス](docs/CLI.md) を参照してください。
 
 ## 対応する入力
 
@@ -75,7 +76,7 @@ agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 | Claude Code | `~/.claude/projects/` 以下のtranscript JSONL |
 | OpenCode | `opencode run --format json` のstdoutを保存したNDJSON |
 
-OpenCodeのDBと `opencode export` の単一JSON文書は入力対象外です。
+OpenCodeのデータベースと、`opencode export` が出力する単一のJSON文書には対応していません。
 形式は自動判定します。必要なら `--format codex|claude_code|opencode` を明示してください。
 抽出済みの `*.clean.jsonl` は閲覧CLIの入力対象ではありません。
 形式ごとの根拠と制約は [入力形式](docs/INPUT_FORMATS.md) を参照してください。
@@ -91,13 +92,13 @@ agent-jsonl-compact install-skills --claude-only   # Claude Codeだけ
 ```
 
 配置先は各エージェントの `skills/agent-jsonl-compact-reader/SKILL.md` です。
-既存ファイルは保持します。更新するときは内容を確認して `--force` を追加してください。
-symlinkで登録したスキルは導入コマンドで上書きできません。
+既存ファイルは上書きしません。更新するときは内容を確認して `--force` を追加してください。
+シンボリックリンクで登録したスキルは、このコマンドでは上書きできません。
 スキル本文はバイナリに埋め込まれるため、編集後は再ビルドが必要です。
 
 ## ログの扱い
 
-軽量化は匿名化ではありません。抽出物やsummaryにも、会話・パス・認証情報・内部指示が残り得ます。
+軽量化した後も、会話、パス、認証情報、内部指示が残ることがあります。summaryも共有前の確認が必要です。
 実ログとその抽出物はコミットせず、共有前に内容を確認してください。
 Unixでは保存するファイルを所有者だけが読み書きできる権限にします。閲覧結果のリダイレクト先はシェル側で権限を設定してください。
 
@@ -118,7 +119,7 @@ mkdir -p ~/.local/bin
 install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
 ```
 
-開発時は `just check` でformat・lint・テスト・ドキュメント・インストーラーを検査します。
+開発時は `just check` で、コードの書式、静的解析、テスト、日英文書の対応、インストーラーを検査します。
 Python 3、ShellCheck、justが必要です。その他のタスクは `just --list`、配布手順は [リリース手順](docs/RELEASING.md) を参照してください。
 
 [ドキュメント索引](docs/README.md) · [開発者向け案内](docs/ONBOARDING.md) · [変更履歴](CHANGELOG.ja.md) · [ADR](docs/adr/README.md)
