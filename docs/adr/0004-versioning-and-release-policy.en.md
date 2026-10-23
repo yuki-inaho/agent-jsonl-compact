@@ -49,7 +49,7 @@ protect users:
 | Breaking the compatibility contract | major (1.x+) / minor (0.x) | Removing or renaming a CLI flag, removing or renaming a JSON field, bumping query schema / cursor version, changing exit-code contracts, changing `install-skills` destinations |
 | Backward-compatible addition | minor | New subcommand, new option, new JSON field, new provider support, new platform support that requires code changes |
 | Backward-compatible fix / distribution | patch | Bug fix, docs, CI, installer fix, new prebuilt architecture without a code-contract change, embedded `SKILL.md` update |
-| No release required (may be batched) | none | Typo in non-embedded docs, internal refactor with no user-visible change |
+| No release required (may be batched) | none | Typo in non-embedded docs, tests/CI-only additions, internal refactor with no user-visible change |
 
 Examples:
 
@@ -72,12 +72,13 @@ Every week, compare the latest `v*` tag with `origin/main`. The reproducible com
 `just weekly-check` (`scripts/weekly-release-check.sh`).
 
 - No diff: do not release.
-- Changes under `src/`, `tests/`, `Cargo.toml`, `Cargo.lock`, `skills/`, or `install.sh`:
+- Changes under `src/`, `Cargo.toml`, `Cargo.lock`, `skills/`, or `install.sh`:
   classify per 2.3 and release. In particular,
   `skills/agent-jsonl-compact-reader/SKILL.md` is embedded into the binary, so a change
   that looks like docs still changes the distribution.
-- Only docs / CI / metadata: normally batch into the next code release. Cut a patch if
-  the change fixes distribution or the installer.
+- Only tests / docs / CI / metadata: normally batch into the next code release. Test and
+  documentation additions alone do not trigger a release. Cut a patch if the change fixes
+  distribution or the installer.
 - If more than 7 days have passed since the latest tag and release-relevant changes
   exist, release promptly.
 

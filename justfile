@@ -35,6 +35,10 @@ docs-check:
 weekly-check:
     bash scripts/weekly-release-check.sh
 
+# release バイナリで sanitize 済み fixture の smoke test
+smoke-release: build
+    bash scripts/smoke-release.sh ./target/release/agent-jsonl-compact
+
 # ビルド→3形式の合成 fixture で利用例を実行。build から利用例までの導線。
 demo: build
     @rm -rf demo-out

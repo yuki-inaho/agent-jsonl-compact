@@ -28,8 +28,8 @@ Decision:
 | Situation | Action |
 |---|---|
 | No diff | Do not release |
-| Code / tests / installer / embedded `SKILL.md` changed | Classify patch / minor / major and release |
-| Only docs / CI / metadata changed | Batch into the next code release; cut a patch if distribution changed |
+| Code / installer / embedded `SKILL.md` changed | Classify patch / minor / major and release |
+| Only tests / docs / CI / metadata changed | Batch into the next code release; no release required |
 | More than 7 days since the latest tag and release-relevant changes exist | Release promptly |
 
 `skills/agent-jsonl-compact-reader/SKILL.md` is embedded into the binary, so a change that
@@ -105,6 +105,14 @@ Expected assets:
 agent-jsonl-compact-x86_64-unknown-linux-musl.tar.gz (+ .sha256)
 agent-jsonl-compact-aarch64-apple-darwin.tar.gz      (+ .sha256)
 agent-jsonl-compact-x86_64-apple-darwin.tar.gz       (+ .sha256)
+```
+
+On release publication, `release-verify.yml` downloads the assets on native Linux,
+macOS arm64, and macOS Intel runners, then verifies checksums and runs the release-binary
+smoke test. To run it manually:
+
+```bash
+gh workflow run release-verify.yml -f tag=vX.Y.Z
 ```
 
 Download and verify checksums and contents:

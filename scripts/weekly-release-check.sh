@@ -41,16 +41,16 @@ echo
 release_relevant=0
 while IFS= read -r f; do
   case "$f" in
-    src/*|tests/*|Cargo.toml|Cargo.lock|build.rs|skills/*|install.sh)
+    src/*|Cargo.toml|Cargo.lock|build.rs|skills/*|install.sh)
       release_relevant=1
       ;;
   esac
 done <<< "$files"
 
 if [ "$release_relevant" -eq 1 ]; then
-  echo "result: release-relevant changes present (code/tests/installer/embedded skill)."
+  echo "result: release-relevant changes present (code/installer/embedded skill)."
   echo "action: classify as patch/minor/major per docs/RELEASING.md and cut a release."
 else
-  echo "result: only docs/CI/metadata changed; no binary or installer change detected."
-  echo "action: batch with the next code release, or cut a patch release if distribution changed."
+  echo "result: only tests/docs/CI/metadata changed; no binary or installer change detected."
+  echo "action: batch with the next code release; no release is required for test/docs/CI-only changes."
 fi

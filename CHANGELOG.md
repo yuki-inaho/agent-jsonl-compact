@@ -4,6 +4,27 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
+## Unreleased
+
+### Added
+
+- Native macOS E2E: `cargo test` runs on both `macos-latest` (arm64) and
+  `macos-15-intel` (x86_64), followed by a release-binary smoke test.
+- `tests/fixtures/claude_desktop_sample.jsonl`: a sanitized real Claude Code / Desktop
+  transcript with text, thinking, tool calls/results, and a pending final tool call.
+  Provenance and the sanitization policy are in `tests/fixtures/README.md`.
+- `scripts/smoke-release.sh`: exercises `--version`, `version --output json`, `--stats`,
+  `view`, `search`, and extraction against the release binary.
+- `release-verify.yml`: downloads published Linux/macOS release assets, verifies their
+  checksums, and runs the release binary on native runners.
+
+### Changed
+
+- Release workflow builds the Intel macOS asset on `macos-15-intel` natively, and runs
+  the release-binary smoke test before packaging.
+- `weekly-release-check.sh` no longer classifies tests/docs/CI-only changes as requiring
+  a release.
+
 ## 0.3.1 — 2026-10-23
 
 Source release date: **2026-10-23** (fixed release date; not a build timestamp).

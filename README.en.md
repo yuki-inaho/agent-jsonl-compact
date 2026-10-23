@@ -457,7 +457,8 @@ just dist                        # tarball + sha256 in dist/ (same as CI)
 
 The release workflow builds both `aarch64-apple-darwin` and `x86_64-apple-darwin` for
 macOS. To check locally, run `cargo build --release` for the host arch, or add the target
-with `rustup target add` and pass `--target` for a cross build.
+with `rustup target add` and pass `--target` for a cross build. CI's `macos-test` runs
+`cargo test` and a release-binary smoke test on native macOS arm64 and Intel runners.
 
 ## Tasks (justfile)
 
@@ -475,6 +476,7 @@ just install-release # install the prebuilt via the local install.sh
 just install-skills  # install the reader skill for each agent
 just docs-check      # check Japanese/English doc pairs and cross-links
 just weekly-check    # compare against the latest tag and report release need
+just smoke-release   # smoke-test the release binary against the sanitized fixture
 ```
 
 ## S/N (signal vs noise) policy
@@ -495,7 +497,10 @@ The default is a faithful mode: "remove only true noise, never remove signal".
 
 Real session JSONL and its extracts (`*.clean.jsonl` / `*.transcript.md`) contain
 conversation text, home paths, and project contents (PII). **Do not commit extracts**
-(already in `.gitignore`). Bundled fixtures contain synthetic data only.
+(already in `.gitignore`). The three format samples are synthetic;
+`claude_desktop_sample.jsonl` is derived from a real conversation and sanitized. See
+`tests/fixtures/README.md` for provenance and removed fields. If you find residual
+sensitive data, contact the maintainer privately instead of opening a public issue.
 
 ## pyo3 (future / optional)
 
@@ -538,15 +543,18 @@ docs/RELEASING.md / .en.md       weekly check and release procedure (Japanese / 
 docs/adr/README.md / .en.md      ADR index (Japanese / English)
 CHANGELOG.md / CHANGELOG.ja.md   changelog (English canonical / Japanese)
 skills/agent-jsonl-compact-reader/SKILL.md  reader skill (embedded into the binary at build time)
-tests/fixtures/*.jsonl                      synthetic fixtures for the three formats (no real sessions)
+tests/fixtures/*.jsonl                      synthetic fixtures for the three formats + a sanitized real Claude transcript
+tests/fixtures/README.md                    fixture provenance and sanitization policy
 tests/viewer_e2e.rs                         A01–A12 acceptance E2E
 tests/viewer_integrity_e2e.rs               concurrent-read integrity E2E (Linux)
 tests/viewer_support/mod.rs                 isolated HOME/XDG and fixture generation
 scripts/benchmark_viewer.py                 synthetic input generation and limited measurement
 scripts/weekly-release-check.sh             diff and release-need report since the latest tag
 scripts/check-docs.sh                       Japanese/English doc pair and cross-link check
-.github/workflows/ci.yml       fmt-check + clippy + test / macOS 2-target release build
+scripts/smoke-release.sh                    run a built release binary against the fixture
+.github/workflows/ci.yml       fmt-check + clippy + test + docs check / native macOS arm64+Intel test and release build
 .github/workflows/release.yml  on v* tags, publish Linux musl + macOS (arm64/x86_64) tarballs + sha256
+.github/workflows/release-verify.yml  verify published release assets on Linux/macOS
 install.sh                     prebuilt installer (Linux/macOS, sha256 verification)
 ```
 

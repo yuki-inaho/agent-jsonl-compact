@@ -26,8 +26,8 @@ just weekly-check
 | 状況 | 対応 |
 |---|---|
 | 差分 0 件 | リリースしない |
-| コード・テスト・installer・埋め込み `SKILL.md` に変更 | patch / minor / major を分類してリリース |
-| docs / CI / metadata のみ | 次回コードリリースへまとめる。配布修正なら patch |
+| コード・installer・埋め込み `SKILL.md` に変更 | patch / minor / major を分類してリリース |
+| tests / docs / CI / metadata のみ | 次回コードリリースへまとめる。リリース不要 |
 | 最終タグから 7 日以上 + リリース対象あり | 速やかにリリース |
 
 `skills/agent-jsonl-compact-reader/SKILL.md` はバイナリに埋め込まれるため、docs に
@@ -101,6 +101,14 @@ gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,assets
 agent-jsonl-compact-x86_64-unknown-linux-musl.tar.gz (+ .sha256)
 agent-jsonl-compact-aarch64-apple-darwin.tar.gz      (+ .sha256)
 agent-jsonl-compact-x86_64-apple-darwin.tar.gz       (+ .sha256)
+```
+
+`release-verify.yml` は Release published 時に、Linux / macOS arm64 / macOS Intel の
+native runner で資産を download し、checksum と release バイナリの smoke test を実行します。
+手動で同じ検証を行う場合:
+
+```bash
+gh workflow run release-verify.yml -f tag=vX.Y.Z
 ```
 
 ダウンロードして checksum と中身を確認します。

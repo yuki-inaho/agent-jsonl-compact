@@ -46,7 +46,7 @@ SemVer の仕様上 0.y.z は任意の変更を含み得るが、本プロジェ
 | 互換性契約の破壊 | major（1.x 以降）/ minor（0.x） | CLI フラグの削除・改名、JSON フィールドの削除・改名、query schema / cursor version の bump、終了コード契約の変更、`install-skills` の配置先変更 |
 | 後方互換な追加 | minor | 新 subcommand、新オプション、新 JSON フィールド、新 provider 対応、コード変更を伴う新プラットフォーム対応 |
 | 後方互換な修正・配布 | patch | バグ修正、docs、CI、installer の修正、新しい prebuilt アーキテクチャの追加（コード契約の変更なし）、埋め込み `SKILL.md` の更新 |
-| リリース不要（次回まで保留可） | なし | 埋め込まれない docs の誤字、内部リファクタで利用者に見える変化が無いもの |
+| リリース不要（次回まで保留可） | なし | 埋め込まれない docs の誤字、テスト・CI のみの追加、内部リファクタで利用者に見える変化が無いもの |
 
 適用例:
 
@@ -69,11 +69,12 @@ SemVer の仕様上 0.y.z は任意の変更を含み得るが、本プロジェ
 `just weekly-check`（`scripts/weekly-release-check.sh`）。
 
 - 差分が 0 件: リリースしない。
-- `src/`、`tests/`、`Cargo.toml`、`Cargo.lock`、`skills/`、`install.sh` に変更:
+- `src/`、`Cargo.toml`、`Cargo.lock`、`skills/`、`install.sh` に変更:
   2.3 に従って分類し、リリースする。特に `skills/agent-jsonl-compact-reader/SKILL.md`
   はバイナリに埋め込まれるため、docs に見えても配布物が変わる。
-- docs / CI / metadata のみ: 原則として次回コードリリースへまとめる。ただし配布や
-  インストーラの修正を含む場合は patch を切る。
+- tests / docs / CI / metadata のみ: 原則として次回コードリリースへまとめる。テスト追加や
+  ドキュメント修正だけではリリースしない。ただし配布やインストーラの修正を含む場合は
+  patch を切る。
 - 最終タグから 7 日以上経過し、リリース対象の変更がある場合は速やかにリリースする。
 
 リリースには次を必須とする。

@@ -429,6 +429,8 @@ just dist                        # tarball + sha256 を dist/ に生成(CI と�
 macOS の配布物は release workflow が `aarch64-apple-darwin` と `x86_64-apple-darwin` の
 両方をビルドします。ローカルで確認する場合はホスト arch 向けに `cargo build --release`、
 cross build する場合は `rustup target add` のうえ `--target` を指定してください。
+CI の `macos-test` は macOS arm64 / Intel の native runner で `cargo test` と
+release バイナリの smoke test を実行します。
 
 ## Tasks (justfile)
 
@@ -446,6 +448,7 @@ just install-release # 手元の install.sh で prebuilt を ~/.local/bin へ
 just install-skills  # reader スキルを各エージェントへ配置
 just docs-check      # 日英ドキュメントのペアと相互リンクを検査
 just weekly-check    # 最新タグ以降の差分を確認し、リリース要否を表示
+just smoke-release   # release バイナリで sanitize 済み fixture の smoke test
 ```
 
 ## S/N (signal vs noise) policy
@@ -464,8 +467,10 @@ just weekly-check    # 最新タグ以降の差分を確認し、リリース要
 ## Safety / PII
 
 実セッションの JSONL とその抽出物(`*.clean.jsonl`/`*.transcript.md`)は会話本文・ホームパス・
-プロジェクト内容(PII)を含む。**抽出物はコミットしない**(`.gitignore` 済)。同梱 fixture は
-合成データのみ。
+プロジェクト内容(PII)を含む。**抽出物はコミットしない**(`.gitignore` 済)。同梱 fixture のうち
+3形式のサンプルは合成データ、`claude_desktop_sample.jsonl` は実会話を sanitize したものです。
+由来と除去項目は `tests/fixtures/README.md` を参照し、残留する機密情報を見つけた場合は
+public issue ではなく maintainer へ非公開で連絡してください。
 
 ## pyo3 (future / optional)
 
@@ -507,15 +512,18 @@ docs/RELEASING.md / .en.md       週次チェックとリリース手順(日本�
 docs/adr/README.md / .en.md      ADR 索引(日本語 / English)
 CHANGELOG.md / CHANGELOG.ja.md   変更履歴(English canonical / 日本語)
 skills/agent-jsonl-compact-reader/SKILL.md  reader スキル(ビルド時にバイナリへ埋め込み)
-tests/fixtures/*.jsonl                      3形式の合成fixture(実セッション由来なし)
+tests/fixtures/*.jsonl                      3形式の合成fixture + sanitize 済み実 Claude transcript
+tests/fixtures/README.md                    fixture の由来と sanitize 方針
 tests/viewer_e2e.rs                         A01–A12 の受入 E2E
 tests/viewer_integrity_e2e.rs               並行読取りの整合性 E2E(Linux)
 tests/viewer_support/mod.rs                 隔離 HOME/XDG と fixture 生成
 scripts/benchmark_viewer.py                 合成入力の生成と限定計測
 scripts/weekly-release-check.sh             最新タグ以降の差分とリリース要否を表示
 scripts/check-docs.sh                       日英ドキュメントのペアと相互リンクを検査
-.github/workflows/ci.yml       fmt-check + clippy + test / macOS 2 target の release build
+scripts/smoke-release.sh                    ビルド済み release バイナリの実行 smoke test
+.github/workflows/ci.yml       fmt-check + clippy + test + docs check / macOS arm64・Intel の native test と release build
 .github/workflows/release.yml  v* タグで Linux musl + macOS (arm64/x86_64) tarball + sha256 を Releases へ
+.github/workflows/release-verify.yml  公開済み release asset を Linux/macOS で検証
 install.sh                     prebuilt インストーラ(Linux/macOS, sha256 検証)
 ```
 
