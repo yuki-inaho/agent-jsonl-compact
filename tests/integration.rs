@@ -153,3 +153,51 @@ fn stats_does_not_write_outputs() {
     assert!(matches!(outcome, RunOutcome::Stats(_)));
     assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn extracts_sanitized_claude_desktop_sample() {
+    let tmp = tempfile::tempdir().unwrap();
+    let outcome = run(base_cli(
+        fixture("claude_desktop_sample.jsonl"),
+        tmp.path().to_path_buf(),
+        "claude_desktop",
+    ))
+    .unwrap();
+    let RunOutcome::Extract(report) = outcome else {
+        panic!("expected extract outcome");
+    };
+    assert_eq!(report.format, SessionFormat::ClaudeCode);
+    assert_eq!(report.kept_events, 14);
+
+    let summary = fs::read_to_string(tmp.path().join("claude_desktop.summary.json")).unwrap();
+    assert!(summary.contains("\"format\": \"claude_code\""));
+    assert!(summary.contains("/home/user/project"));
+
+    let clean = fs::read_to_string(tmp.path().join("claude_desktop.clean.jsonl")).unwrap();
+    for kind in [
+        "session",
+        "user",
+        "assistant",
+        "thinking",
+        "tool_call",
+        "tool_output",
+    ] {
+        assert!(
+            clean.contains(&format!("\"kind\":\"{kind}\"")),
+            "missing kind {kind}"
+        );
+    }
+    assert!(clean.contains("Userさん"));
+    assert!(clean.contains("あなたの会話jsonlって共有できる？"));
+    for forbidden in [
+        "Yoshi-yu",
+        "Asia/Tokyo",
+        "/home/claude",
+        "a79584e2",
+        "claude-opus",
+        "claude-sonnet",
+        "2026-10-23",
+    ] {
+        assert!(!clean.contains(forbidden), "sanitization leak: {forbidden}");
+    }
+}

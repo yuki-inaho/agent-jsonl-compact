@@ -4676,3 +4676,75 @@ fn f06_cursor_regex_mode_is_inherited_independently_of_query() {
         Some("filter_mismatch")
     );
 }
+
+#[test]
+fn real_sanitized_claude_desktop_fixture_view_search_and_pending_pair() {
+    let sandbox = Sandbox::new();
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude_desktop_sample.jsonl");
+    let path = path.to_string_lossy().into_owned();
+
+    let out = ok(
+        &sandbox,
+        &["view", "-i", &path, "--tail", "20", "--output", "jsonl"],
+    );
+    let meta = out.metadata();
+    assert_eq!(status(&meta), "ok");
+    assert_eq!(meta["provider"].as_str(), Some("claude_code"));
+    assert_eq!(
+        meta["source"]["session_id"].as_str(),
+        Some("00000000-0000-4000-8000-000000000001")
+    );
+    assert!(out.stdout.contains("Userさん"));
+    assert!(!out.stdout.contains("Yoshi-yu"));
+    assert!(!out.stdout.contains("Asia/Tokyo"));
+    assert!(!out.stdout.contains("/home/claude"));
+    assert!(!out.stdout.contains("a79584e2"));
+
+    let out = ok(
+        &sandbox,
+        &[
+            "search",
+            "-i",
+            &path,
+            "--query",
+            "会話",
+            "--context",
+            "1",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert!(out.events().iter().any(|event| {
+        event.get("kind").and_then(Value::as_str) == Some("user")
+            && event
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("会話")
+    }));
+    assert!(!out.stdout.contains("Yoshi-yu"));
+
+    let out = ok(
+        &sandbox,
+        &[
+            "view",
+            "-i",
+            &path,
+            "--scope",
+            "tools",
+            "--with-pair",
+            "--output",
+            "jsonl",
+        ],
+    );
+    let events = out.events();
+    assert!(events.iter().any(|event| {
+        event.get("pair_state").and_then(Value::as_str) == Some("pending_result")
+            && event.get("call_id").and_then(Value::as_str)
+                == Some("toolu_000000000000000000000003")
+    }));
+    assert!(events
+        .iter()
+        .any(|event| event.get("pair_state").and_then(Value::as_str) == Some("paired")));
+}
