@@ -10,8 +10,8 @@ Architecture Decision Records. New ADRs are added as a pair of `NNNN-*.md` (Japa
 | [0001](0001-additive-session-viewer-cli.md) | Add an additive viewer CLI (`sessions` / `view` / `search`) without replacing extraction | Accepted / Implemented | Japanese body |
 | [0002](0002-cursor-and-resource-boundaries.md) | Page / append cursors and resource boundaries (do not retain everything; never advance silently) | Accepted / Implemented | Japanese body |
 | [0003](0003-version-and-release-metadata.md) | Version and fixed source release date; tag / release contract | Accepted / Implemented | Japanese body |
-| [0004](0004-versioning-and-release-policy.en.md) | SemVer application, 0.x handling, patch/minor/major classification, weekly check | Accepted | [English](0004-versioning-and-release-policy.en.md) |
-| [0005](0005-bilingual-documentation.en.md) | Japanese default, `*.en.md`, synchronization and checks | Accepted | [English](0005-bilingual-documentation.en.md) |
+| [0004](0004-versioning-and-release-policy.en.md) | SemVer application, 0.x handling, patch/minor/major classification, weekly check | Accepted | [Japanese](0004-versioning-and-release-policy.md) |
+| [0005](0005-bilingual-documentation.en.md) | Japanese default, `*.en.md`, synchronization and checks | Accepted | [Japanese](0005-bilingual-documentation.md) |
 
 ## English summaries of existing ADRs
 
