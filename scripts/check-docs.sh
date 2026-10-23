@@ -26,13 +26,17 @@ check_pair() {
 }
 
 check_pair README.md README.en.md
+check_pair SECURITY.md SECURITY.en.md
 check_pair CHANGELOG.md CHANGELOG.ja.md
 check_pair docs/README.md docs/README.en.md
+check_pair docs/CLI.md docs/CLI.en.md
+check_pair docs/INPUT_FORMATS.md docs/INPUT_FORMATS.en.md
 check_pair docs/ONBOARDING.md docs/ONBOARDING.en.md
 check_pair docs/RELEASING.md docs/RELEASING.en.md
 check_pair docs/adr/README.md docs/adr/README.en.md
 check_pair docs/adr/0004-versioning-and-release-policy.md docs/adr/0004-versioning-and-release-policy.en.md
 check_pair docs/adr/0005-bilingual-documentation.md docs/adr/0005-bilingual-documentation.en.md
+check_pair docs/adr/0006-safe-installation-and-storage.md docs/adr/0006-safe-installation-and-storage.en.md
 
 if [ "$fail" -ne 0 ]; then
   echo "docs language pairs: FAILED"

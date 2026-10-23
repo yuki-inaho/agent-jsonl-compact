@@ -1,5 +1,7 @@
 # 作業書: Session JSONL 軽量化スクリプトの Rust バイナリ移植
 
+> この文書は作成当時の要件・検証記録です。版・日付・試行結果は履歴として保持します。現在の利用方法は [README](../README.md) と [CLIリファレンス](CLI.md) を確認してください。
+
 作成日: 2026-06-09  
 対象リポジトリ: `tomato-slack-notion-knowledge-rag-main`  
 提出実装: `agent-jsonl-compact` Rust CLI

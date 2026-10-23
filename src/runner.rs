@@ -3,6 +3,7 @@ use crate::clean::{keep_set, kind_of, Cleaner};
 use crate::cli::{Cli, Command, OutputFormat, SessionFormat};
 use crate::counter::Counter;
 use crate::detect::detect_format;
+use crate::query::output::escape_controls;
 use crate::render::render_markdown;
 use crate::util::{
     clone_or_null, event, for_each_jsonl_record, json_text, json_truthy, number_u64, string, Event,
@@ -11,7 +12,7 @@ use crate::util::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{Map, Number, Value};
 use std::collections::BTreeSet;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -51,15 +52,15 @@ impl StatsReport {
         println!("detected format: {}\n", self.format.as_str());
         println!("== 生レコード型 ==");
         for (key, count) in self.raw_type_counter.most_common() {
-            println!("{count:>7}  {}", key.replace('/', " / "));
+            println!("{count:>7}  {}", escape_controls(&key.replace('/', " / ")));
         }
         println!("\n== 正規化 kind(全件) ==");
         for (key, count) in self.kind_counter_all.most_common() {
-            println!("{count:>7}  {key}");
+            println!("{count:>7}  {}", escape_controls(&key));
         }
         println!("\n== 出力された kind(フィルタ後) ==");
         for (key, count) in self.kept_kind_counter.most_common() {
-            println!("{count:>7}  {key}");
+            println!("{count:>7}  {}", escape_controls(&key));
         }
     }
 }
@@ -91,7 +92,10 @@ impl ExtractReport {
         );
         for path in &self.written {
             let size_kb = fs::metadata(path).map(|m| m.len() / 1024).unwrap_or(0);
-            println!("  - {}  ({size_kb} KB)", path.display());
+            println!(
+                "  - {}  ({size_kb} KB)",
+                escape_controls(&path.to_string_lossy())
+            );
         }
     }
 }
@@ -109,11 +113,15 @@ impl InstallReport {
         } else {
             println!("installed skill '{READER_SKILL_NAME}':");
             for path in &self.written {
-                println!("  - {}", path.display());
+                println!("  - {}", escape_controls(&path.to_string_lossy()));
             }
         }
         for (path, reason) in &self.skipped {
-            println!("  skipped {} ({reason})", path.display());
+            println!(
+                "  skipped {} ({})",
+                escape_controls(&path.to_string_lossy()),
+                escape_controls(reason)
+            );
         }
     }
 }
@@ -124,11 +132,12 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
             Command::InstallSkills {
                 claude_only,
                 codex_only,
+                force,
             } => {
                 let home = std::env::var_os("HOME")
                     .map(PathBuf::from)
                     .ok_or_else(|| anyhow!("HOME environment variable is not set"))?;
-                install_skills_into(&home, *claude_only, *codex_only)
+                install_skills_with_force(&home, *claude_only, *codex_only, *force)
                     .map(RunOutcome::InstalledSkills)
             }
             // Viewer commands are dispatched in `run_cli` / `query::runner`.
@@ -213,22 +222,48 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| "session".to_string())
     });
+    if base.is_empty()
+        || base == "."
+        || base == ".."
+        || base.contains(['/', '\\'])
+        || base.chars().any(char::is_control)
+    {
+        bail!("--name must be a non-empty filename without path separators or control characters");
+    }
+
+    // Check every destination before writing any output, including input aliases.
+    let mut destinations = Vec::new();
+    if matches!(args.format_out, OutputFormat::Jsonl | OutputFormat::Both) {
+        destinations.push(out_dir.join(format!("{base}.clean.jsonl")));
+    }
+    if matches!(args.format_out, OutputFormat::Md | OutputFormat::Both) {
+        destinations.push(out_dir.join(format!("{base}.transcript.md")));
+    }
+    if args.summary {
+        destinations.push(out_dir.join(format!("{base}.summary.json")));
+    }
+    for path in &destinations {
+        check_destination(path, Some(&input))?;
+    }
 
     let mut written = Vec::new();
     if matches!(args.format_out, OutputFormat::Jsonl | OutputFormat::Both) {
         let path = out_dir.join(format!("{base}.clean.jsonl"));
-        let mut file =
-            File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-        for event in &kept {
-            writeln!(file, "{}", serde_json::to_string(event)?)?;
-        }
+        write_atomic(&path, |file| {
+            for event in &kept {
+                writeln!(file, "{}", serde_json::to_string(event)?)?;
+            }
+            Ok(())
+        })?;
         written.push(path);
     }
 
     if matches!(args.format_out, OutputFormat::Md | OutputFormat::Both) {
         let path = out_dir.join(format!("{base}.transcript.md"));
-        fs::write(&path, render_markdown(&kept, format))
-            .with_context(|| format!("failed to write {}", path.display()))?;
+        write_atomic(&path, |file| {
+            file.write_all(render_markdown(&kept, format).as_bytes())?;
+            Ok(())
+        })?;
         written.push(path);
     }
 
@@ -244,11 +279,10 @@ pub fn run(args: Cli) -> Result<RunOutcome> {
             &kept,
         )?;
         let summary_path = out_dir.join(format!("{base}.summary.json"));
-        fs::write(
-            &summary_path,
-            format!("{}\n", serde_json::to_string_pretty(&summary)?),
-        )
-        .with_context(|| format!("failed to write {}", summary_path.display()))?;
+        write_atomic(&summary_path, |file| {
+            writeln!(file, "{}", serde_json::to_string_pretty(&summary)?)?;
+            Ok(())
+        })?;
         written.push(summary_path);
     }
 
@@ -421,6 +455,15 @@ pub fn install_skills_into(
     claude_only: bool,
     codex_only: bool,
 ) -> Result<InstallReport> {
+    install_skills_with_force(home, claude_only, codex_only, false)
+}
+
+fn install_skills_with_force(
+    home: &Path,
+    claude_only: bool,
+    codex_only: bool,
+    force: bool,
+) -> Result<InstallReport> {
     let mut agents: Vec<(&str, PathBuf)> = Vec::new();
     if !codex_only {
         agents.push(("claude", home.join(".claude")));
@@ -441,13 +484,72 @@ pub fn install_skills_into(
             ));
             continue;
         }
+        if fs::symlink_metadata(&target)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            bail!("refusing symlink skill directory: {}", target.display());
+        }
         fs::create_dir_all(&target)
             .with_context(|| format!("failed to create {}", target.display()))?;
         let file = target.join("SKILL.md");
-        fs::write(&file, READER_SKILL_MD)
-            .with_context(|| format!("failed to write {}", file.display()))?;
+        check_destination(&file, None)?;
+        if file.exists() && !force {
+            report
+                .skipped
+                .push((file, "already exists; use --force to replace".into()));
+            continue;
+        }
+        write_atomic(&file, |output| {
+            output.write_all(READER_SKILL_MD.as_bytes())?;
+            Ok(())
+        })?;
         report.written.push(file);
     }
 
     Ok(report)
+}
+
+fn check_destination(path: &Path, input: Option<&Path>) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() {
+                bail!("refusing non-regular output: {}", path.display());
+            }
+            if let Some(input) = input {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    let source = fs::metadata(input)?;
+                    if source.dev() == metadata.dev() && source.ino() == metadata.ino() {
+                        bail!("output would replace input: {}", path.display());
+                    }
+                }
+                if fs::canonicalize(path)? == fs::canonicalize(input)? {
+                    bail!("output would replace input: {}", path.display());
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => {
+            return Err(error).with_context(|| format!("cannot inspect {}", path.display()))
+        }
+    }
+    Ok(())
+}
+
+/// A private same-directory temporary file prevents partial writes and avoids following
+/// destination symlinks or modifying other names linked to an existing output inode.
+fn write_atomic<F>(path: &Path, write: F) -> Result<()>
+where
+    F: FnOnce(&mut std::fs::File) -> Result<()>,
+{
+    let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))?;
+    write(temporary.as_file_mut())?;
+    temporary.as_file_mut().flush()?;
+    check_destination(path, None)?;
+    temporary
+        .persist(path)
+        .with_context(|| format!("failed to save {}", path.display()))?;
+    Ok(())
 }

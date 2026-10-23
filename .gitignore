@@ -14,3 +14,6 @@ dist/
 
 # Local work evidence / workdocs (never commit)
 /temp/
+
+# Python installer-test caches
+__pycache__/

@@ -12,6 +12,7 @@
 | [0003](0003-version-and-release-metadata.md) | 版と固定 source release date、tag / release の契約 | Accepted / Implemented | 索引にサマリ |
 | [0004](0004-versioning-and-release-policy.md) | SemVer の適用、0.x の扱い、patch/minor/major の分類、週次チェック | Accepted | [English](0004-versioning-and-release-policy.en.md) |
 | [0005](0005-bilingual-documentation.md) | 日本語デフォルト、`*.en.md`、同期と検査 | Accepted | [English](0005-bilingual-documentation.en.md) |
+| [0006](0006-safe-installation-and-storage.md) | 依存関係の更新、MSRV、安全な保存と導入 | Implemented locally | [English](0006-safe-installation-and-storage.en.md) |
 
 ## 既存 ADR の英語サマリ
 

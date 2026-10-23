@@ -7,11 +7,11 @@ default:
 
 # release バイナリをビルド
 build:
-    cargo build --release
+    cargo build --locked --release
 
 # 全テスト(unit + integration)
 test:
-    cargo test
+    cargo test --locked
 
 # フォーマット
 fmt:
@@ -25,7 +25,12 @@ lint:
     cargo clippy --all-targets -- -D warnings
 
 # 品質ゲート一括
-check: fmt-check lint test docs-check
+check: fmt-check lint test docs-check installer-check
+
+# インストーラーの静的検査と隔離した合成リリースでの回帰テスト
+installer-check:
+    shellcheck install.sh
+    python3 -m unittest discover -s tests -p 'test_installer.py' -v
 
 # 日英ドキュメントのペアと相互リンクを検査
 docs-check:
@@ -54,7 +59,7 @@ stats input:
 # musl 静的バイナリをビルド(glibc 非依存・配布用)
 build-musl:
     rustup target add x86_64-unknown-linux-musl
-    cargo build --release --target x86_64-unknown-linux-musl
+    cargo build --locked --release --target x86_64-unknown-linux-musl
 
 # 配布物(CI と同じ tarball + sha256)を dist/ に生成
 dist: build-musl
@@ -72,6 +77,7 @@ dist: build-musl
 
 # ローカルビルドを ~/.local/bin へインストール
 install: build
+    mkdir -p ~/.local/bin
     install -m 0755 target/release/agent-jsonl-compact ~/.local/bin/agent-jsonl-compact
     @echo "installed: ~/.local/bin/agent-jsonl-compact (ensure ~/.local/bin is on PATH)"
 

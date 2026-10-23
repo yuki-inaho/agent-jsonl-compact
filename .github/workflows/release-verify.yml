@@ -31,58 +31,46 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-15-intel
             target: x86_64-apple-darwin
-    env:
-      GH_TOKEN: ${{ github.token }}
-      BIN: agent-jsonl-compact
-      TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Resolve tag
         id: tag
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            tag="${{ github.event.workflow_run.head_branch }}"
+          if [ "$EVENT_NAME" = "release" ]; then
+            tag="$RELEASE_TAG"
+          elif [ "$EVENT_NAME" = "workflow_run" ]; then
+            tag="$RUN_BRANCH"
             case "$tag" in
               v*) : ;;
               *) tag="$(gh release view --json tagName -q .tagName)" ;;
             esac
           else
-            tag="${{ inputs.tag }}"
+            tag="$INPUT_TAG"
             if [ -z "$tag" ]; then
               tag="$(gh release view --json tagName -q .tagName)"
             fi
           fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$ ]]
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "verifying $tag"
 
-      - name: Download release assets
+      - name: Install and smoke test the published binary
         shell: bash
+        env:
+          AJC_VERSION: ${{ steps.tag.outputs.tag }}
+          INSTALL_DIR: ${{ runner.temp }}/ajc-release-bin
         run: |
           set -euo pipefail
-          mkdir -p dist
-          gh release download "${{ steps.tag.outputs.tag }}" --dir dist \
-            --pattern '*.tar.gz' --pattern '*.sha256'
-          ls -la dist
-
-      - name: Verify checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd dist
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum -c ./*.sha256
-          else
-            shasum -a 256 -c ./*.sha256
-          fi
-
-      - name: Extract and smoke test the published binary
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -xzf "dist/${BIN}-${TARGET}.tar.gz" -C dist
-          bash scripts/smoke-release.sh "dist/${BIN}-${TARGET}/${BIN}"
+          bash install.sh
+          bash scripts/smoke-release.sh "$INSTALL_DIR/agent-jsonl-compact"

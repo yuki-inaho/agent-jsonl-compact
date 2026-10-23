@@ -2411,7 +2411,7 @@ fn installer_home(case: &str, claude: bool, codex: bool, existing: &str) -> (San
 #[test]
 fn a11_installer_matrix_nine_cases() {
     // Nine isolated homes covering: both present, codex only, claude only, absent, explicit
-    // flags, and existing content (same / different / baseline overwrite).
+    // flags, and preservation of existing content.
     let cases: Vec<(&str, bool, bool, &str, Option<&str>)> = vec![
         ("both-present", true, true, "", None),
         ("codex-only-home", false, true, "", None),
@@ -2455,18 +2455,25 @@ fn a11_installer_matrix_nine_cases() {
         assert_eq!(codex_skill.exists(), expect_codex, "{case} codex");
         if claude_skill.exists() {
             let body = fs::read_to_string(&claude_skill).unwrap();
-            assert!(body.contains("agent-jsonl-compact"), "{case}");
-            if case != "different-content" {
-                assert_ne!(body, "CUSTOM-USER-SKILL");
+            if existing.is_empty() {
+                assert!(body.contains("agent-jsonl-compact"), "{case}");
+            } else {
+                assert_eq!(body, existing, "{case}");
             }
         }
         if !expect_claude && claude_present {
             assert!(out.stdout.contains("skipped"), "{case}: {}", out.stdout);
         }
     }
-    // Existing unrelated user skill content is overwritten (baseline behavior), documented.
+    // Preserve user edits unless replacement is explicitly requested.
     let (sandbox, home) = installer_home("different-content", true, false, "CUSTOM-USER-SKILL");
     ok(&sandbox, &["install-skills"]);
+    let body = fs::read_to_string(
+        Path::new(&home).join(".claude/skills/agent-jsonl-compact-reader/SKILL.md"),
+    )
+    .unwrap();
+    assert_eq!(body, "CUSTOM-USER-SKILL");
+    ok(&sandbox, &["install-skills", "--force"]);
     let body = fs::read_to_string(
         Path::new(&home).join(".claude/skills/agent-jsonl-compact-reader/SKILL.md"),
     )

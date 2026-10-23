@@ -9,17 +9,30 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test minimum supported Rust
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          cargo +1.88.0 test --locked
+
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust (stable + rustfmt + clippy)
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt --component clippy
           rustup default stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
 
       - name: Format check
         run: cargo fmt --all --check
@@ -28,10 +41,15 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Docs language pairs
         run: bash scripts/check-docs.sh
+
+      - name: Installer safety
+        run: |
+          shellcheck install.sh
+          python3 -m unittest discover -s tests -p 'test_installer.py' -v
 
   macos-test:
     name: macos (${{ matrix.target }})
@@ -45,7 +63,9 @@ jobs:
           - os: macos-15-intel
             target: x86_64-apple-darwin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust (stable + target)
         run: |
@@ -53,15 +73,18 @@ jobs:
           rustup default stable
           rustup target add "${{ matrix.target }}"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:
           key: ${{ matrix.target }}
 
       - name: Test (native macOS)
-        run: cargo test
+        run: cargo test --locked
+
+      - name: Test installer with native archive tools
+        run: python3 -m unittest discover -s tests -p 'test_installer.py' -v
 
       - name: Build (release)
-        run: cargo build --release --target "${{ matrix.target }}"
+        run: cargo build --locked --release --target "${{ matrix.target }}"
 
       - name: Smoke test release binary
         run: bash scripts/smoke-release.sh "target/${{ matrix.target }}/release/agent-jsonl-compact"

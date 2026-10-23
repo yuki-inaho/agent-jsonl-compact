@@ -20,7 +20,7 @@ test -f "$fixture"
 "$bin" -i "$fixture" -o "$out/default" >/dev/null
 test -s "$out/default/claude_desktop_sample.clean.jsonl"
 
-# Explicit transcript output (works across 0.3.x and 0.4.x).
+# Explicit transcript output.
 "$bin" -i "$fixture" -o "$out/all" --format-out both >/dev/null
 test -s "$out/all/claude_desktop_sample.clean.jsonl"
 test -s "$out/all/claude_desktop_sample.transcript.md"

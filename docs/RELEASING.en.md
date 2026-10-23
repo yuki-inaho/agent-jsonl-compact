@@ -1,167 +1,73 @@
-# Releasing and versioning
+# Release procedure
 
 [日本語](RELEASING.md) | **English**
 
-Version classification follows [ADR 0004](adr/0004-versioning-and-release-policy.en.md);
-Japanese/English documentation synchronization follows
-[ADR 0005](adr/0005-bilingual-documentation.en.md). This document is the execution
-procedure.
+Follow [ADR 0004](adr/0004-versioning-and-release-policy.en.md) for version classification and [ADR 0005](adr/0005-bilingual-documentation.en.md) for documentation pairs.
+Never move or delete published tags.
 
-## 1. Weekly check
+## Review changes
 
-Compare the latest `v*` tag with `origin/main` and decide whether a release is needed.
+Use `just weekly-check` to compare the latest tag with `origin/main`.
+Code, dependencies, installer, and embedded skill changes affect distribution.
+Documentation, tests, and CI-only changes may wait for the next release.
+Treat MSRV increases and changes to existing CLI behavior as compatibility changes.
 
-```bash
-just weekly-check
-```
+## Before release
 
-Internally, `scripts/weekly-release-check.sh` prints:
-
-- the latest tag and its age in days
-- commits since the latest tag
-- changed paths
-- whether release-relevant paths changed (`src/`, `tests/`, `Cargo.toml`, `Cargo.lock`,
-  `skills/`, `install.sh`)
-
-Decision:
-
-| Situation | Action |
+| Update | Content |
 |---|---|
-| No diff | Do not release |
-| Code / installer / embedded `SKILL.md` changed | Classify patch / minor / major and release |
-| Only tests / docs / CI / metadata changed | Batch into the next code release; no release required |
-| More than 7 days since the latest tag and release-relevant changes exist | Release promptly |
-
-`skills/agent-jsonl-compact-reader/SKILL.md` is embedded into the binary, so a change that
-looks like docs still changes the distribution. Always treat it as release-relevant.
-
-## 2. Choosing the version
-
-| Change | Version |
-|---|---|
-| Breaking the compatibility contract (removed flag, changed JSON key, schema / cursor bump, changed exit code) | major (1.x+) / minor (0.x) |
-| Backward-compatible addition (new subcommand, option, field, provider) | minor |
-| Backward-compatible fix / distribution (bug fix, docs, CI, installer, new prebuilt arch, embedded skill) | patch |
-| No user-visible change | No release required |
-
-When in doubt, use "would this break an existing user script?" as the criterion. If it
-would, treat it as major (minor during 0.x).
-
-## 3. Pre-release checklist
-
-Update all of the following in the release commit:
-
-- [ ] `version` in `Cargo.toml`
-- [ ] `Cargo.lock` (e.g. `cargo update -p agent-jsonl-compact --offline`)
-- [ ] `SOURCE_RELEASE_DATE` in `src/query/version.rs`
-- [ ] tests that pin the version/date (e.g. `tests/viewer_e2e.rs::a11_version_consistency`)
-- [ ] `CHANGELOG.md` (English canonical) and `CHANGELOG.ja.md`
-- [ ] affected README / ONBOARDING / RELEASING / ADR Japanese/English pairs
-
-Verify:
+| `Cargo.toml`, `Cargo.lock` | Matching package version |
+| `src/query/version.rs` | Fixed source release date |
+| Tests with fixed version/date | Match the new metadata |
+| `CHANGELOG.md`, `CHANGELOG.ja.md` | Changes, Breaking, migration steps |
+| README, CLI, skill, and other language pairs | Current procedures and contracts; no release-history paragraphs |
 
 ```bash
-just check        # fmt-check + clippy -D warnings + test + docs-check
-just docs-check   # run only the Japanese/English pair check
+just check
+cargo +1.88.0 test --locked
+cargo audit --deny warnings
+just smoke-release
 ```
 
-Push to main and confirm CI (Linux check + macOS 2-target build + docs pair check) is
-green. Before tagging, you can dry-run the release workflow manually
-(`workflow_dispatch` skips the publish job and leaves build artifacts only):
+`Cargo.toml` is authoritative for MSRV; update the toolchain above when it changes.
+Use the cargo-audit version pinned in the security workflow.
+After local checks, inspect CI and security results for the target commit.
 
-```bash
-gh workflow run release.yml --ref main
-gh run list --workflow release.yml --limit 3
-```
+For a distribution dry run, use `gh workflow run release.yml --ref main`.
+`workflow_dispatch` leaves build artifacts without publishing a Release.
 
-## 4. Tag and Release
+## Tag and distribute
 
-After CI is green, create an annotated tag on the target commit on main and push it:
+Create and push an annotated tag on the target commit. Replace `vX.Y.Z` with the chosen version.
 
 ```bash
 git tag -a vX.Y.Z -m "agent-jsonl-compact X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-`release.yml` builds the following three targets in a matrix and attaches them to one
-Release:
+After security checks succeed, `release.yml` builds Linux x86_64 musl, macOS arm64, and macOS x86_64.
+Each target runs smoke tests. Publication requires all builds to succeed.
+Build jobs have read permission; only the publish job can write Release assets.
 
-- `x86_64-unknown-linux-musl`
-- `aarch64-apple-darwin`
-- `x86_64-apple-darwin`
+| Asset | Contents |
+|---|---|
+| `agent-jsonl-compact-<target>.tar.gz` | Binary, README, and LICENSE inside the matching directory |
+| Matching `.sha256` | Tarball SHA-256; not signature-based authenticity |
 
-Each target produces `agent-jsonl-compact-<target>.tar.gz` and `.sha256`. The publish job
-runs only after every build job succeeds.
+Tags such as `vX.Y.Z-rc.N` publish prereleases and do not become the latest stable release.
+Use `gh release edit vX.Y.Z --notes-file <file>` to replace generated notes with CHANGELOG content when needed.
+Include breaking changes, migration steps, supported targets, and the lack of macOS notarization.
 
-## 5. Asset verification
+## Verify published assets
 
 ```bash
 gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,assets
-```
-
-Expected assets:
-
-```text
-agent-jsonl-compact-x86_64-unknown-linux-musl.tar.gz (+ .sha256)
-agent-jsonl-compact-aarch64-apple-darwin.tar.gz      (+ .sha256)
-agent-jsonl-compact-x86_64-apple-darwin.tar.gz       (+ .sha256)
-```
-
-On release publication, or after a successful `release` workflow, `release-verify.yml`
-downloads the assets on native Linux, macOS arm64, and macOS Intel runners, then verifies
-checksums and runs the release-binary smoke test. A Release created with `GITHUB_TOKEN`
-does not trigger `release: published`, so the workflow-completion path is also provided.
-To run it manually:
-
-```bash
 gh workflow run release-verify.yml -f tag=vX.Y.Z
 ```
 
-Download and verify checksums and contents:
+`release-verify.yml` installs published assets through `install.sh` into a temporary directory and runs smoke tests on native Linux, macOS arm64, and macOS Intel.
+It runs automatically after Release publication or completion of the release workflow.
+Check every target in Actions. A local Linux pass does not verify macOS execution.
 
-```bash
-tmp="$(mktemp -d)"
-gh release download vX.Y.Z --dir "$tmp"
-( cd "$tmp" && sha256sum -c ./*.sha256 )
-for a in "$tmp"/*.tar.gz; do tar -C "$tmp" -xzf "$a"; done
-file "$tmp"/agent-jsonl-compact-*/agent-jsonl-compact
-"$tmp/agent-jsonl-compact-x86_64-unknown-linux-musl/agent-jsonl-compact" --version
-```
-
-macOS binaries cannot run on Linux. Check the Mach-O arch with `file` and, when possible,
-verify `--version` and `version --output json` on a real macOS machine. macOS binaries are
-ad-hoc signed only and not notarized. If Gatekeeper quarantines one, advise
-`xattr -d com.apple.quarantine <binary>`.
-
-## 6. Release notes
-
-Replace the auto-generated release body with the relevant CHANGELOG section if needed:
-
-```bash
-gh release edit vX.Y.Z --notes-file temp/release-notes-vX.Y.Z.md
-```
-
-Include at least:
-
-- version and fixed source release date
-- main changes (`Breaking` called out explicitly)
-- attached assets (three targets and checksums)
-- macOS signing / notarization caveat
-
-## 7. Hotfix and defects
-
-- Never move or delete a published tag.
-- For a defect, branch from the latest tag, bump patch, fix, merge back to main, and create
-  a new tag.
-- To mark an old Release as unusable, use `gh release edit`.
-
-## 8. Pre-release
-
-A tag of the form `vX.Y.Z-rc.N` is published as a prerelease by `release.yml` and is not
-marked latest. Direct general users to stable releases.
-
-## 9. Limitations
-
-- The weekly check is currently manual; scheduled execution is not configured.
-- CI verifies macOS builds, but execution tests are mainly the Linux binary on Linux.
-- Do not freeze the current Release state in this document; check GitHub Actions / Releases.
+Publish a new version for fixes. You may update warnings on an old Release, but never move its tag.
+Check Actions / Releases for current remote state rather than copying it into this guide.

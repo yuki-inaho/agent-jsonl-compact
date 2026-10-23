@@ -21,7 +21,7 @@ pub struct Cli {
     #[arg(short = 'o', long = "out-dir")]
     pub out_dir: Option<PathBuf>,
 
-    /// 出力ベース名。未指定時は入力ファイル名の stem です。
+    /// 出力ベース名(パス区切り不可)。未指定時は入力ファイル名の stem です。
     #[arg(long = "name")]
     pub name: Option<String>,
 
@@ -77,6 +77,10 @@ pub enum Command {
         /// Codex(~/.codex/skills)のみへインストールします。
         #[arg(long)]
         codex_only: bool,
+
+        /// 既存スキルを置き換えます。symlink は置き換えません。
+        #[arg(long)]
+        force: bool,
     },
     /// 会話候補(session)を探します。探索rootは明示指定または既定root($HOME配下)です。
     Sessions(SessionsArgs),

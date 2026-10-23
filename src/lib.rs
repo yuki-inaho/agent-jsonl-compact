@@ -29,7 +29,10 @@ pub fn run_cli() -> i32 {
             0
         }
         Err(err) => {
-            eprintln!("ERROR: {err:#}");
+            eprintln!(
+                "ERROR: {}",
+                query::output::escape_controls(&format!("{err:#}"))
+            );
             1
         }
     }

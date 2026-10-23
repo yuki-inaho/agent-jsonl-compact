@@ -6,6 +6,21 @@ All notable changes to `agent-jsonl-compact` are recorded here.
 
 ## Unreleased
 
+### Breaking
+
+- Source builds now require Rust 1.88; update `time` and `anyhow` past known RustSec advisories.
+- `install-skills` preserves existing files; use `--force` after review to replace them. Symlinked skills are rejected.
+- Extraction rejects path separators/control characters in output names, input aliases, and non-regular destinations.
+
+### Security and documentation
+
+- Save outputs through private temporary files; safely replace existing files without following destination links. Escape terminal control characters in statistics, reports, and errors.
+- Validate installer tags, checksums, archive members and file types; stage installation and do not execute downloaded binaries.
+- Add daily security checks and a release gate, pin Action commits, reduce release permissions, and avoid shell interpolation of event input.
+- Shorten Japanese/English guides; move CLI details and input provenance into reference documents.
+
+## Unreleased
+
 ### Changed
 
 - `release-verify` now also runs after a successful `release` workflow (`workflow_run`),
