@@ -162,9 +162,9 @@ receipt には次を残す（helper が出力する）。
 | 計測 | `read_bytes`（主走査・logical）、`total_read_bytes` と breakdown、`stdout_bytes` + `stderr_bytes`、wall、peak RSS |
 | 条件 | OS cache は cold/warm を制御していない（値はラベルであり保証ではない） |
 
-計測値（**context / regex プロファイル修正前の計測候補** release バイナリ `bc52b88d…` の
-receipt。最終凍結 source の検証済み候補**バイナリ**は sha256 `7ee5e42b…`（source 側は runner
-`61f297b5…`）であり、この計測の対象ではない）:
+計測値は、**context / regex プロファイル修正前**の release バイナリ `bc52b88d…` の receipt による。
+最終凍結 source の検証済み候補バイナリ（sha256 `7ee5e42b…`、source 側は runner `61f297b5…`）は、
+この計測の対象ではない。
 
 - 入力: seed 42、`claude_code`、physical records 110,088、bytes 69,234,347、
   input sha256 `0c64ec59841f8f212abb42498ec3c6670fe91f6dbbd72fa2fe370acd7a74f39a`

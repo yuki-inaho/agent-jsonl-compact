@@ -3,12 +3,14 @@
 > この文書は作成当時の要件・検証記録です。版・日付・試行結果は履歴として保持します。現在の利用方法は [README](../README.md) と [CLIリファレンス](CLI.md) を確認してください。
 
 作成日: 2026-06-09  
-対象リポジトリ: `tomato-slack-notion-knowledge-rag-main`  
+対象リポジトリ: 移植元リポジトリ<br>
 提出実装: `agent-jsonl-compact` Rust CLI
 
 ## 1. 目的
 
-提供リポジトリ内に含まれる Codex CLI rollout JSONL および Claude Code transcript JSONL の軽量化スクリプトを、Python 実行環境に依存しない Rust CLI として切り出し、release build 後に単体バイナリとして配置できる形にします。
+移植元には、Codex CLIとClaude Codeの会話ログを軽量化するPythonスクリプトがあります。
+このスクリプトを、Python実行環境に依存しないRust CLIとして切り出します。
+リリースビルド後は、単体のバイナリとして配置できます。
 
 本移植で維持する目的は次の 3 点です。
 
@@ -262,8 +264,7 @@ ZIP には Rust 実装、README、作業書、テスト fixture、統合テス�
 
 ## 9. 現リポジトリ統合メモ（2026-06-10）
 
-初期提出時は ZIP 前提の作業書だったが、現在は独立 Git リポジトリ
-`/home/inaho-omen/Project/agent-jsonl-compact` として運用する。
+初期提出時はZIPを前提とした作業書だったが、現在は独立したGitリポジトリとして運用する。
 
 現行の正本は次のとおり。
 
@@ -273,7 +274,7 @@ ZIP には Rust 実装、README、作業書、テスト fixture、統合テス�
 | crate name | `agent-jsonl-compact` |
 | CLI binary | `target/release/agent-jsonl-compact` |
 | install path example | `~/.local/bin/agent-jsonl-compact` |
-| integration user | `/home/inaho-omen/Project/slack-knowledge-rag` の `just extract-session` / `just inspect-session` |
+| integration user | 連携先リポジトリの `just extract-session` / `just inspect-session` |
 
 `justfile`、README、Cargo manifest、CLI help、統合先リポジトリの `.envrc` は
 `agent-jsonl-compact` 名で統一する。旧名 `session-jsonl-compact` は使用しない。

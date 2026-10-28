@@ -40,11 +40,13 @@ agent-jsonl-compact --version            # semver のみ（従来と同じ）
 agent-jsonl-compact version --output json
 ```
 
-`version --output json` は `version`、固定の `source_release_date`、`source_commit`、`source_commit_dirty`、
-`query_schema_version`、`cursor_version` を返します。更新日はソースコードに定めた固定日です。
+`version --output json` は `name`、`version`、固定の `source_release_date`、`source_commit`、
+`source_commit_dirty`、`query_schema_version`、`cursor_version`、`source_date_kind` を返します。
+`source_release_date` はソースコードに定めた固定のリリース日です。
+`source_date_kind` は、この日付がビルド時刻ではないことを示します。
 `source_commit` はビルド時に取得した Git コミット（40桁または64桁の16進）で、取得できないビルドでは `unknown` です。
 `source_commit_dirty` はビルド時に未コミット変更があったかを示し、Git を利用できないビルドでは `null`（不明）です。
-不明を clean として扱いません。増分ビルドでもブランチの前進や作業ツリーの変更を反映するため、ビルドスクリプトは毎回 Git 状態を確認します。
+不明は「未コミットの変更なし」とは扱いません。増分ビルドでもブランチの前進や作業ツリーの変更を反映するため、ビルドスクリプトは毎回 Git 状態を確認します。
 ビルド時刻やGitHub Releaseの更新時刻とは異なります（[ADR 0003](adr/0003-version-and-release-metadata.md)）。
 
 ### 1. 候補を探す — `sessions`
@@ -57,9 +59,9 @@ agent-jsonl-compact sessions --provider codex --cwd /path/to/repo --limit 20
 agent-jsonl-compact sessions --provider all --root ~/.claude/projects --output jsonl
 ```
 
-- 探索するのは、各ツールの既定ディレクトリと、`--root` で指定したディレクトリだけです。
-  OpenCodeのrun JSONLを探す場合は `--root` を指定してください。
-  既定の探索先には含まれず、`opencode.db` の場所も推測しません。
+- 各ツールの既定ディレクトリを探索します。`--root` を指定した場合は、そのディレクトリを探索します。
+  OpenCodeのrun JSONLは既定の探索先に含まれないため、`--root` を指定してください。
+  `opencode.db` の場所も推測しません。
 - `--provider all` はcodex / claude_code / opencodeを対象にします。
 - 既定 root が存在しない場合は意図的に読み飛ばします。`--root` で明示した root が存在しない、
   または権限などで読めない場合は `status: partial`（`scan_io`）です。
@@ -130,8 +132,9 @@ agent-jsonl-compact search -i /path/rollout.jsonl --query 'timeout|retry' --rege
   roleや時刻の絞り込み条件（soft filter）に合わない隣接イベントも `is_context: true` として表示しますが、
   reasoning / developerは含めません。K の上限は10,000です。保持上限を超えた文脈は
   `counts.context_dropped` に件数を出して省略します。
-- `--phase` はログに記録された phase 名のカンマ区切り、`--until` は指定時刻より前（境界を含まない）
-  の絞り込みです。`--since` / `--until` は offset 付き RFC3339 を要求します。
+- `--phase` には、ログに記録された phase 名をカンマ区切りで指定します。
+  `--until` は指定時刻より前のイベントに絞り込み、境界の時刻は含みません。
+  `--since` / `--until` は offset 付き RFC3339 を要求します。
 - `search --with-pair` も、ヒットした tool 呼出し・結果に対応する相手を併記します。
 - 検索に一致したイベントが別のヒットの前後にも含まれる場合は、primaryとして1回だけ表示します。
 - 1イベントの一致位置は最大256件まで保持し、超過時は `matched_ranges_truncated: true` と
@@ -168,7 +171,7 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | | page cursor | append cursor |
 |---|---|---|
 | 用途 | 同じsnapshotの続き | 前回の完全行末より後の追記 |
-| 発行 | 未表示のprimaryが残っている | 全行を走査し、未検査の行がない |
+| 発行条件 | 未表示のprimaryが残っているとき | 全行を走査し、未検査の行がないとき |
 | 注意 | ページの途中ではappend cursorは出ない | 未検査の行を飛ばして先へ進まない |
 
 - カーソルは発行時のフィルター、クエリ、表示範囲と、searchの `--context` を保持します。
@@ -199,7 +202,7 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 
 ### 7. 入力行と出力の上限
 
-- `--max-output-bytes`（既定32768、最小8192）はstdout + stderrの合計です。
+- `--max-output-bytes`（既定32768、最小8192）は標準出力と標準エラー出力の合計です。
   メタデータ、タイトル、診断も含みます。収まらない場合は `budget_too_small`（終了コード2）で停止し、
   途中で切れた不正なJSONは出力しません。
 - `--max-record-bytes`（既定1 MiB）を超える行は、`uninspected` として元ログの範囲だけを返します。
@@ -247,12 +250,15 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 
 #### メタデータ行
 
-`status` は `ok` / `partial` / `error` のいずれかです。検索が30秒の処理予算を超えた場合は `scan.search_timed_out: true` と `partial` になります。`partial` は、scan limit、未検査 record、
+`status` は `ok` / `partial` / `error` のいずれかです。検索の走査が30秒を超えた場合は `scan.search_timed_out: true` と `partial` になります。
+`partial` は、scan limit、未検査 record、
 不正 record、読取不能ファイル、読み取り中の変更など、確定できない範囲が残ることを示します。
 `counts.invalid` / `counts.uninspected` / `counts.context_dropped` と `scan` の各値を確認してください。
 
 `sessions` の `scan` には `files_scanned`、`scan_limit`、`scan_limit_reached`、`entries_visited`、
-`scan_bytes`、`walk_errors`、`symlinks_skipped`、`limit_reason` が入ります。`limit_reason` は
+`scan_bytes`、`walk_errors`、`symlinks_skipped`、`limit_reason` が入ります。
+
+`limit_reason` は
 `scan_limit` / `scan_entries` / `scan_depth` / `scan_bytes` / `scan_file_bytes` / `scan_io` /
 `scan_symlink` / `scan_time` のいずれかです。存在しない既定 root は意図的に読み飛ばしますが、
 明示 root の不在や権限不足などで読めない root・ディレクトリ・エントリは `walk_errors` に数え、
@@ -268,7 +274,7 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | `session_resolution_incomplete` | scan limit・読取不能・未検査・不正 record が残り、一意性や不在を断定できない |
 | `cursor_invalid` | cursor の形式・世代・位置・filter・session が一致しない |
 | `budget_too_small` | 出力予算に収まらず、進捗のあるページを返せない（終了コード2） |
-| `cursor_too_large` | `--query` などの組み合わせが64 KiBを超えるcursorを生成するため、成功扱いで返せない（終了コード2） |
+| `cursor_too_large` | `--query` などの指定により64 KiBを超えるカーソルができるため、成功として返せない（終了コード2） |
 | `source_unreadable` | 入力が読めない、または通常ファイルでない |
 
 入力の行数・深さ・バイト数には探索側の上限があります。上限に達した結果は成功ではなく

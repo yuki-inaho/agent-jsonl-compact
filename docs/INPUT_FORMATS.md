@@ -18,7 +18,7 @@ Codexは実装タグを更新したとき、Claude CodeはCLI更新後、OpenCod
 
 | 形式 | 保持するもの | 失われ得るもの・制約 |
 |---|---|---|
-| Codex CLI | `timestamp` / `ordinal` / `type` / `payload`、session_meta の id・cwd、call_id、ツール名、出力 | 暗号化 reasoning の本文は復元できない。code mode の custom tool は legacy 抽出で落ちる場合がある。未知の `type` は `unknown` になる |
+| Codex CLI | `timestamp` / `ordinal` / `type` / `payload`、session_meta の id・cwd、call_id、ツール名、出力 | 暗号化 reasoning の本文は復元できない。code mode の custom tool は legacy 抽出では取り出せない場合がある。未知の `type` は `unknown` になる |
 | Claude Code | `sessionId` / `uuid`、message.content の text・thinking・tool_use・tool_result、`isMeta` / `isCompactSummary` の由来 | 行内形式はリリース間で変わり得る。`attachment` や UI 専用 record は既定で抽出しない。Claude の検証版は固定していない |
 | OpenCode | `run --format json` の NDJSON、sessionID、part の text・reasoning・tool_use / tool_output | run JSONL に含まれないユーザープロンプトやモデル名は補わない。DB と `opencode export` の単一 JSON は対象外 |
 

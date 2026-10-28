@@ -92,8 +92,8 @@ F08 stdout 返却と診断分離 / F09 legacy 互換 / F10 形式未確定・不
   | `orphan` | 結果だけがあり、対応する call が無い |
   | `not_rendered_budget` | 対応は存在するが表示予算で出せない |
 
-- `unknown_pair` は「未着」ではない。走査範囲に gap や未検査 record がある場合、
-  `pending_result` と混同しない。pair 走査自体が不完全なら `scan.with_pair.incomplete: true`。
+- `unknown_pair` は「未着」ではない。走査範囲に gap や未検査 record がある場合は、
+  `pending_result` と区別する。pair 走査自体が不完全なら `scan.with_pair.incomplete: true`。
 - 逆に、終端がまだ書き込み中で newline が無い **PendingTail は pending_result のまま**であり、
   `incomplete` を立てない（「未完の末尾」と「証明の欠落」は別）。
 - 対応件数は `paired_total`（実総数）と `paired_event_ids`（保持した ID）を分けて返す。

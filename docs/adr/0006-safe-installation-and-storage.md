@@ -2,7 +2,7 @@
 
 **日本語** | [English](0006-safe-installation-and-storage.en.md)
 
-- Status: Implemented locally; remote workflows not yet run for this change
+- Status: Implemented
 - Date: 2026-10-23
 - 関連: [ADR 0003 §2.4](0003-version-and-release-metadata.md)、[ADR 0004](0004-versioning-and-release-policy.md)
 
@@ -13,7 +13,7 @@
 [RUSTSEC-2026-0009](https://rustsec.org/advisories/RUSTSEC-2026-0009)、`anyhow 1.0.102` に
 [RUSTSEC-2026-0190](https://rustsec.org/advisories/RUSTSEC-2026-0190) を報告して終了コード1になった。
 
-前者はRFC 2822の日時解析、後者は `Error::downcast_mut` が対象で、現在のコードはそのAPIを使っていない。
+前者の対象は RFC 2822 の日時解析、後者の対象は `Error::downcast_mut` で、現在のコードはその API を使っていない。
 ただし、ADR 0003でRust 1.74を維持するために固定した `time` を更新できず、依存グラフの監査が失敗する状態だった。
 修正版 `time 0.3.47` はRust 1.88以上を要求する（`cargo info time@0.3.47`）。
 

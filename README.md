@@ -31,7 +31,8 @@ rm -rf "$ajc_tmp"
 | `AJC_VERSION` | 取得するReleaseタグ。固定する場合は実在する `vX.Y.Z` を指定 | 最新の安定版 |
 | `INSTALL_DIR` | 配置先の絶対パス | `~/.local/bin` |
 
-版や配置先を指定するには、上の `bash` コマンドを `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"` に置き換えてください。
+版や配置先を指定するには、上の `bash "$ajc_tmp/install.sh"` の部分を
+`AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"` に置き換えてください。
 インストーラーの版も固定する場合は、ダウンロードURLの `main` を同じタグに置き換えます。
 
 SHA-256照合でダウンロード破損を検出します。チェックサムも同じReleaseから取得するため、配布元の侵害を検出する署名検証ではありません。
@@ -56,7 +57,7 @@ agent-jsonl-compact -i session.jsonl -o out
 agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 ```
 
-`view` / `search` は標準出力（stdout）に結果を表示し、ファイルを保存しません。
+`sessions` / `view` / `search` は標準出力（stdout）に結果を表示し、ファイルを保存しません。
 `--output jsonl` で機械処理用の出力、`--scope tools --with-pair` でツールの呼出しと結果を確認できます。
 既定の閲覧範囲は会話本文です。reasoning・system・developer・compactionは、`--scope all` でも表示しません。
 
@@ -66,7 +67,7 @@ agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 保存先がシンボリックリンクの場合や、入力ファイルと同じファイルを指す場合はエラーになります。
 
 本文とツール出力の切り詰めは既定で無効です。短くする場合だけ `--msg-chars N` / `--out-chars N` / `--elide-outputs` を指定してください。
-連続する同一本文と重複 web_search は既定で畳み込みます。保持する場合は `--no-dedup` を指定してください。
+連続する同一本文と重複するweb_searchは、既定で重複分を除きます。すべて残すには `--no-dedup` を指定してください。
 オプション、出力の上限、途中から読み直すためのカーソル、終了コードは [CLIリファレンス](docs/CLI.md) を参照してください。
 
 ## 対応する入力
