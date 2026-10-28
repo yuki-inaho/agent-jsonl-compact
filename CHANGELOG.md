@@ -4,6 +4,13 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
+## 0.5.1 — 2026-10-28
+
+### Changed
+
+- Generalize local paths in the historical port record. This release includes the changes listed under 0.5.0, which was not published as a release.
+- Clarify installation options, search roots, version metadata, and cursor conditions in the documentation.
+
 ## 0.5.0 — 2026-10-28
 
 Source release date: **2026-10-28** (fixed release date; not a build timestamp).

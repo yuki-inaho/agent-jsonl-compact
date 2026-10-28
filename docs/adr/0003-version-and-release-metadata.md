@@ -39,8 +39,8 @@
   `source_date_kind` は `fixed_release_date_not_build_time` であり、
   build 時刻ではないことを機械可読に示す。
 - `--version` は従来どおり semver のみ（`clap` の `version`）。既存利用者の出力を変えない。
-- **GitHub Release の `updated_at` は「最後に編集された時刻」、`published_at` は「公開時刻」**
-  であり、どちらも固定 source date と比較しない。3つは別の意味を持つ。検証対象は「Cargo 版 = JSON 版 = CHANGELOG の版」と
+- GitHub Release の `updated_at`（最後に編集された時刻）と `published_at`（公開時刻）は、
+  固定 source date とは別の値であり、検証には使わない。検証対象は「Cargo 版 = JSON 版 = CHANGELOG の版」と
   「CHANGELOG と JSON の source date」である。
 - revision（build した commit SHA）は、不明な場合に捏造するより省略する。
 

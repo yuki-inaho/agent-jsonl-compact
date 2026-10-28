@@ -98,7 +98,7 @@ A requested value or cursor value cannot raise an absolute limit. Exceeding a li
 - Con: oversized records that were previously readable now become `parse_error`.
 - Con: event_id format and cursor event references are not compatible with 0.4.0.
 - Con: an inherited line number is display-only and explicitly unverified.
-- Con: Markdown bodies in code fences are less visually formatted.
+- Con: Markdown bodies in code fences are not rendered as headings or emphasis.
 
 ## 5. Verification
 

@@ -2,7 +2,7 @@
 
 [日本語](0006-safe-installation-and-storage.md) | **English**
 
-- Status: Implemented locally; remote workflows not yet run for this change
+- Status: Implemented
 - Date: 2026-10-23
 - Related: [ADR 0003 §2.4](0003-version-and-release-metadata.md), [ADR 0004](0004-versioning-and-release-policy.en.md)
 

@@ -31,7 +31,8 @@ The installer replaces an existing binary. It stops with an error if the destina
 | `AJC_VERSION` | Release tag; use an existing `vX.Y.Z` to pin it | Latest stable release |
 | `INSTALL_DIR` | Absolute installation directory | `~/.local/bin` |
 
-To choose a version or destination, replace the `bash` command above with `AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"`.
+To choose a version or destination, replace `bash "$ajc_tmp/install.sh"` above with
+`AJC_VERSION=vX.Y.Z INSTALL_DIR="$HOME/bin" bash "$ajc_tmp/install.sh"`.
 To pin the installer version too, replace `main` in the download URL with the same tag.
 
 SHA-256 detects download corruption. Because the checksum comes from the same Release, it cannot detect a compromise of the release source.
@@ -56,7 +57,7 @@ agent-jsonl-compact -i session.jsonl -o out
 agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 ```
 
-`view` / `search` print results to standard output (stdout) without saving files.
+`sessions` / `view` / `search` print results to standard output (stdout) without saving files.
 Use `--output jsonl` for machine-readable results and `--scope tools --with-pair` for tool calls and results.
 The default scope is conversation text. Reasoning, system, developer, and compaction content remain excluded with `--scope all`.
 
@@ -66,7 +67,7 @@ Extraction replaces existing output files. Output names cannot contain path sepa
 The command fails if a destination is a symbolic link or refers to the input file.
 
 Message and tool-output truncation is disabled by default. Use `--msg-chars N`, `--out-chars N`, or `--elide-outputs` only when shortening is needed.
-Consecutive identical message bodies and duplicate web searches are folded by default; add `--no-dedup` to keep them.
+Consecutive identical message bodies and duplicate web searches are removed by default; add `--no-dedup` to keep them.
 See the [CLI reference](docs/CLI.en.md) for options, output limits, cursors for resuming reads, and exit codes.
 
 ## Supported inputs

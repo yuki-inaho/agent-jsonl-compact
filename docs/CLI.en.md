@@ -39,8 +39,9 @@ agent-jsonl-compact --version            # semver only (unchanged)
 agent-jsonl-compact version --output json
 ```
 
-`version --output json` returns `version`, the fixed `source_release_date`, `source_commit`, `source_commit_dirty`,
-`query_schema_version`, and `cursor_version`. `source_commit` is the Git commit captured at build time (40 or 64
+`version --output json` returns `name`, `version`, the fixed `source_release_date`, `source_commit`, `source_commit_dirty`,
+`query_schema_version`, `cursor_version`, and `source_date_kind`. The fixed release date is defined in the source;
+`source_date_kind` indicates that it is not the build time. `source_commit` is the Git commit captured at build time (40 or 64
 hexadecimal digits), or `unknown` when no Git metadata was available. `source_commit_dirty` reports uncommitted changes
 present at build time, and is `null` (unknown) when Git was unavailable; unknown is never reported as clean. The build
 script checks Git on every build so incremental builds reflect branch advances and worktree edits. The update date
@@ -56,7 +57,7 @@ agent-jsonl-compact sessions --provider codex --cwd /path/to/repo --limit 20
 agent-jsonl-compact sessions --provider all --root ~/.claude/projects --output jsonl
 ```
 
-- The command searches each tool's default directories and directories specified with `--root`.
+- The command searches each tool's default directories, or the directories specified with `--root`.
   To find OpenCode run JSONL, specify `--root`. OpenCode logs have no default search directory,
   and the command does not guess the location of `opencode.db`.
 - `--provider all` targets codex / claude_code / opencode.

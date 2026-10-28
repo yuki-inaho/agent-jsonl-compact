@@ -94,7 +94,8 @@ P0はMVPの必須、P1は後続。CLIの綴り・既定上限は第4節の設計
 
 **この節は将来のインターフェース案であり、0.2.0では実行できない。**
 
-増やす入口は` sessions / view / search `の3つを基本とし、既存抽出を残す。`view`と`search`は同じ正規化・filter・出力・source位置の実装を共有する。
+追加するコマンドは `sessions` / `view` / `search` の3つを基本とし、既存の抽出は残す。
+`view` と `search` は同じ正規化・filter・出力・source位置の実装を共有する。
 
 ```sh
 # 対象repoの会話候補を探す。IDはproviderで名前空間を分ける
