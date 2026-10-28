@@ -42,6 +42,9 @@ impl Default for SelectOptions {
 pub struct MatchInfo {
     pub queries: Vec<String>,
     pub ranges: Vec<(usize, usize)>,
+    /// Number of matches observed; may be a lower bound when `ranges_truncated`.
+    pub ranges_total: u64,
+    pub ranges_truncated: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -227,6 +230,20 @@ impl Selector {
             self.retained.remove(&oldest);
             self.dropped_context += 1;
         }
+        // Absolute cap: trailing context may not justify exceeding the configured memory bound.
+        // Drop the oldest non-primary even when it is inside the trailing window and disclose it.
+        while self.retained.len() > self.total_retained_cap {
+            let Some(candidate) = self
+                .retained
+                .keys()
+                .copied()
+                .find(|ordinal| !self.primary_set.contains(ordinal))
+            else {
+                break;
+            };
+            self.retained.remove(&candidate);
+            self.dropped_context += 1;
+        }
     }
 
     /// Whether the scan can stop early: head window full and every needed trailing context event
@@ -254,9 +271,17 @@ impl Selector {
                 };
                 let span = self.options.context;
                 let lo = center.saturating_sub(span);
-                let hi = (center + span).min(ordinals.len().saturating_sub(1));
+                let hi = center
+                    .saturating_add(span)
+                    .min(ordinals.len().saturating_sub(1));
                 for ordinal in &ordinals[lo..=hi] {
                     if *ordinal != *primary {
+                        if keep.len() >= self.total_retained_cap
+                            && !self.primary_set.contains(ordinal)
+                        {
+                            self.dropped_context += 1;
+                            continue;
+                        }
                         keep.insert(*ordinal);
                         self.context.insert(*ordinal);
                     }
@@ -344,6 +369,7 @@ mod tests {
             call_id: None,
             tool_observed: ToolObserved::None,
             origin_id: None,
+            raw_line_verified: true,
             mirror_of: None,
             mirror_relation: None,
             source: SourceRef {
@@ -505,6 +531,7 @@ mod tests {
             Some(MatchInfo {
                 queries: vec!["q".into()],
                 ranges: vec![],
+                ..Default::default()
             })
         };
         for seq in 0..100 {

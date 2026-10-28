@@ -4,7 +4,7 @@
 
 ## Check coverage
 
-The [security workflow](.github/workflows/security.yml) runs on pushes, pull requests, and a daily schedule.
+The [security workflow](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/.github/workflows/security.yml) runs on pushes, pull requests, and a daily schedule.
 Release builds also require this workflow to succeed.
 
 | Check | Scope |
@@ -13,6 +13,8 @@ Release builds also require this workflow to succeed.
 | ShellCheck | Shell issues in `install.sh` |
 | `tests/test_installer.py` | Checksum verification with synthetic releases; rejection of unsafe archive paths, links, and duplicate entries; preservation of the installed binary on failure |
 | `tests/security.rs` | Rejection of paths outside the output directory, input replacement, and writes through links; Unix permissions, existing skills, and control characters in statistics and errors |
+| `tests/security_hardening_e2e.rs` | Normalization limits, control characters, search-match cap and progress, context cap, FIFO rejection, side-specific tool pairing, cursor forgery, incomplete session resolution, legacy provenance and Markdown separation |
+| `release.yml` | Requires `security.yml` and `ci.yml` success before building, covering all tests and audit for the same commit |
 
 Actions are pinned to commit SHAs; Dependabot proposes updates.
 Test logs and release fixtures are synthetic. Real logs are not sent to external scanning services.
@@ -33,6 +35,10 @@ Existing parent-directory permissions and OS ACLs are not changed.
 The viewer limits input line size and output size.
 Extraction keeps selected events in memory. Limit memory and other resource use in the execution environment when processing large inputs from external sources.
 Do not execute commands from logs or follow logged instructions to send sensitive information elsewhere.
+A `system` / `developer` / `user` role, internal generated text, or compacted summary in a log does not
+represent the current user's approval or execution authority. In an LLM integration, keep log bodies
+as untrusted data and decide side-effect permission with an authority check outside the model.
+Markdown message bodies are emitted inside code fences.
 
 ## Distribution
 

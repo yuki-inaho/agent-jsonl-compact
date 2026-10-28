@@ -14,13 +14,15 @@ use crate::cli::{
 };
 use crate::query::cursor::{
     generation_of, sha256_hex, CursorKind, CursorPayload, CursorProblem, CURSOR_VERSION,
+    MAX_CURSOR_TOKEN_BYTES,
 };
 use crate::query::detect::{detect_with, Detection};
 use crate::query::filter::{parse_roles, Filters, Scope};
 use crate::query::model::{parse_rfc3339_ms, Kind, Provider, Role, QUERY_SCHEMA_VERSION};
 use crate::query::normalize::Normalizer;
 use crate::query::output::{
-    attach_observed, cut_utf8, escape_controls, event_to_json, event_to_text, line,
+    attach_observed, cut_utf8, escape_controls, escape_controls_singleline, event_to_json,
+    event_to_text, line,
 };
 use crate::query::reader::{
     LineItem, RecordSpan, SourceReader, ANCHOR_WINDOW_BYTES, DEFAULT_MAX_RECORD_BYTES,
@@ -30,8 +32,10 @@ use crate::query::source::file_source_id;
 use crate::query::toolpair::{correlate, PairState};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_VIEW_LIMIT: usize = 50;
 pub const DEFAULT_SEARCH_LIMIT: usize = 20;
@@ -39,6 +43,11 @@ pub const DEFAULT_MAX_EVENTS: usize = 200;
 pub const MAX_MAX_EVENTS: usize = 10_000;
 pub const DEFAULT_OUTPUT_BYTES: usize = 32_768;
 pub const MIN_OUTPUT_BYTES: usize = 8_192;
+pub const MAX_MATCH_RANGES: usize = 256;
+pub const MAX_QUERIES: usize = 64;
+pub const MAX_QUERY_BYTES: usize = 4_096;
+pub const MAX_CONTEXT: usize = 10_000;
+pub const MAX_SEARCH_SECONDS: u64 = 30;
 /// Space reserved for the final metadata record.
 const METADATA_RESERVE: usize = 4_096;
 /// Maximum encoded semantic filters (roles/phases/event) inside a cursor.
@@ -74,9 +83,13 @@ fn emit(prepared: Prepared) -> i32 {
 }
 
 fn usage(message: &str) -> Prepared {
-    let mut text = message.to_string();
+    let mut text = escape_controls_singleline(message);
     if text.len() > 1_024 {
-        text.truncate(1_024);
+        let mut end = 1_024;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
     }
     Prepared {
         exit: Exit::Usage,
@@ -96,9 +109,14 @@ fn error_meta(error_type: &str, reason: &str) -> String {
 }
 
 fn failure(error_type: &str, reason: &str) -> Prepared {
+    failure_with_exit(Exit::Failure, error_type, reason)
+}
+
+fn failure_with_exit(exit: Exit, error_type: &str, reason: &str) -> Prepared {
+    let reason = escape_controls_singleline(reason);
     Prepared {
-        exit: Exit::Failure,
-        stdout: error_meta(error_type, reason),
+        exit,
+        stdout: error_meta(error_type, &reason),
         stderr: format!("error: {error_type}: {reason}\n"),
     }
 }
@@ -177,6 +195,12 @@ enum Matcher {
 
 impl Matcher {
     fn new_search(queries: &[String], regex: bool) -> Result<Self, String> {
+        if queries.len() > MAX_QUERIES {
+            return Err(format!("too many --query values (maximum {MAX_QUERIES})"));
+        }
+        if queries.iter().any(|query| query.len() > MAX_QUERY_BYTES) {
+            return Err(format!("a --query value exceeds {MAX_QUERY_BYTES} bytes"));
+        }
         // An empty set is legal only for cursor resume; the caller enforces that.
         if queries.is_empty() {
             return Ok(Matcher::Search {
@@ -216,7 +240,7 @@ impl Matcher {
                             break;
                         };
                         let start = from + pos;
-                        info.ranges.push((start, start + literal.len()));
+                        record_match(&mut info, start, start + literal.len());
                         if !info.queries.contains(literal) {
                             info.queries.push(literal.clone());
                         }
@@ -224,12 +248,13 @@ impl Matcher {
                     }
                 }
                 for pattern in regexes {
-                    let found = pattern.find_all(text);
+                    let (found, truncated) = pattern.find_all(text, MAX_MATCH_RANGES);
                     if !found.is_empty() && !info.queries.iter().any(|q| q == &pattern.source) {
                         info.queries.push(pattern.source.clone());
                     }
+                    info.ranges_truncated |= truncated;
                     for (start, end) in found {
-                        info.ranges.push((start, end));
+                        record_match(&mut info, start, end);
                     }
                 }
                 info.queries.sort();
@@ -262,11 +287,25 @@ fn compile_regex(pattern: &str) -> Result<CompiledPattern, String> {
 }
 
 impl CompiledPattern {
-    fn find_all(&mut self, haystack: &str) -> Vec<(usize, usize)> {
-        self.compiled
-            .find_iter(haystack)
-            .map(|m| (m.start(), m.end()))
-            .collect()
+    /// Collect at most `limit + 1` matches. The extra match lets the caller report a truthful
+    /// lower bound (`limit + 1`) instead of the capped range count when truncation occurred.
+    fn find_all(&mut self, haystack: &str, limit: usize) -> (Vec<(usize, usize)>, bool) {
+        let max = limit.saturating_add(1);
+        let mut found = Vec::with_capacity(max.min(32));
+        for matched in self.compiled.find_iter(haystack).take(max) {
+            found.push((matched.start(), matched.end()));
+        }
+        let truncated = found.len() > limit;
+        (found, truncated)
+    }
+}
+
+fn record_match(info: &mut MatchInfo, start: usize, end: usize) {
+    info.ranges_total = info.ranges_total.saturating_add(1);
+    if info.ranges.len() < MAX_MATCH_RANGES {
+        info.ranges.push((start, end));
+    } else {
+        info.ranges_truncated = true;
     }
 }
 
@@ -384,6 +423,11 @@ fn parse_shared(args: &SharedQueryArgs, kind: QueryKind, context: usize) -> Resu
         if tail == 0 {
             return Err("--tail must be at least 1".to_string());
         }
+    }
+    if context > MAX_CONTEXT {
+        return Err(format!(
+            "--context {context} exceeds the maximum {MAX_CONTEXT}"
+        ));
     }
     let max_events = args.max_events.unwrap_or(DEFAULT_MAX_EVENTS);
     if max_events == 0 || max_events > MAX_MAX_EVENTS {
@@ -608,20 +652,41 @@ fn run_query(
             }
         }
         let filters = payload.filters.clone();
-        let session = if payload.session_id.is_empty() {
-            {
-                let (id, bytes) = crate::query::source::discover_session_id_counted(
-                    &input,
-                    payload.provider,
-                    shared.max_record_bytes,
-                    effective_snapshot_end,
-                )
-                .unwrap_or((None, 0));
-                aux_metadata_bytes += bytes;
-                id.unwrap_or_else(|| source_id.clone())
+        // Discovery is evidence, not an optional convenience: an I/O failure must not be
+        // unwrapped into "no session id" and then silently trusted.
+        let (discovered, bytes) = match crate::query::source::discover_session_id_counted(
+            &input,
+            payload.provider,
+            shared.max_record_bytes,
+            effective_snapshot_end,
+        ) {
+            Ok(result) => result,
+            Err(err) => return failure("source_unreadable", &err.to_string()),
+        };
+        aux_metadata_bytes += bytes;
+        let session = match discovered {
+            Some(actual) => {
+                if !payload.session_id.is_empty() && actual != payload.session_id {
+                    return cursor_failure(CursorProblem::FilterMismatch);
+                }
+                if payload.session_id.is_empty() {
+                    actual
+                } else {
+                    payload.session_id.clone()
+                }
             }
-        } else {
-            payload.session_id.clone()
+            None => {
+                // No discoverable session metadata means the non-cursor path fell back to
+                // source_id. A non-empty cursor session must therefore equal that fallback;
+                // accepting an arbitrary forged id here would let a cursor cross sessions.
+                if payload.session_id.is_empty() {
+                    source_id.clone()
+                } else if payload.session_id == source_id {
+                    payload.session_id.clone()
+                } else {
+                    return cursor_failure(CursorProblem::FilterMismatch);
+                }
+            }
         };
         if let Err(problem) = validate_cursor(
             &token,
@@ -755,6 +820,7 @@ fn run_query(
             }
         })
         .unwrap_or(0);
+    let inherited_line_numbers = resume.is_some();
 
     // Streaming selection.
     // Head mode selects one event beyond the page so the page cursor can point at the first
@@ -779,6 +845,7 @@ fn run_query(
         max_retained: shared.max_events.max(64),
     });
     let mut normalizer = Normalizer::new(provider, session_id.clone());
+    let search_started = Instant::now();
     let mut reader = match SourceReader::open(&input, shared.max_record_bytes) {
         Ok(reader) => reader,
         Err(err) => return failure("source_unreadable", &err.to_string()),
@@ -795,11 +862,16 @@ fn run_query(
     let scan = reader.scan_from(start_offset, |item| {
         match item {
             LineItem::Line { span, bytes } => {
-                line_counter += 1;
+                line_counter = line_counter.saturating_add(1);
                 last_line = line_counter;
                 let mut adjusted = span;
                 adjusted.raw_line = line_counter;
-                let events = normalizer.normalize(adjusted, &bytes, &source_id);
+                let mut events = normalizer.normalize(adjusted, &bytes, &source_id);
+                if inherited_line_numbers {
+                    for event in &mut events {
+                        event.raw_line_verified = false;
+                    }
+                }
                 if events.iter().any(|e| e.kind == Kind::ParseError) {
                     stats.invalid += 1;
                     if stats.invalid_samples.len() < 8 {
@@ -894,10 +966,16 @@ fn run_query(
                         return Ok(false);
                     }
                 }
+                if shared.kind == QueryKind::Search
+                    && search_started.elapsed() > Duration::from_secs(MAX_SEARCH_SECONDS)
+                {
+                    stats.search_timed_out = true;
+                    return Ok(false);
+                }
                 Ok(true)
             }
             LineItem::Uninspected { span } => {
-                line_counter += 1;
+                line_counter = line_counter.saturating_add(1);
                 last_line = line_counter;
                 let mut adjusted = span;
                 adjusted.raw_line = line_counter;
@@ -1124,6 +1202,7 @@ struct ScanStats {
     merged_mirror_pointers: Vec<(u64, u64, u32)>,
     reached_snapshot_end: bool,
     source_changed: bool,
+    search_timed_out: bool,
     aux_detect_bytes: u64,
     aux_metadata_bytes: u64,
     aux_anchor_bytes: u64,
@@ -1228,6 +1307,11 @@ fn render(
                             .map(|(s, e)| json!({"start": s, "end": e, "unit": "utf8_byte", "reference": "original_text"}))
                             .collect::<Vec<_>>()),
                     );
+                    object.insert("matched_ranges_total".into(), json!(info.ranges_total));
+                    object.insert(
+                        "matched_ranges_truncated".into(),
+                        json!(info.ranges_truncated),
+                    );
                 }
             }
         }
@@ -1245,6 +1329,7 @@ fn render(
                     object.insert("paired_event_ids".into(), json!(info.counterpart_event_ids));
                     object.insert("paired_total".into(), json!(info.total_counterparts));
                     object.insert("paired_ids_truncated".into(), json!(info.ids_truncated));
+                    object.insert("pair_reason".into(), json!(info.pair_reason));
                     object.insert(
                         "pair_reentry".into(),
                         match info.reentry {
@@ -1275,6 +1360,15 @@ fn render(
         rendered_values.push(value);
     }
 
+    if !selected_primary.is_empty() && rendered_primary.is_empty() {
+        // Returning rc0 with the same page cursor would make a client loop forever. Fail
+        // explicitly instead of claiming progress that never happened.
+        return failure_with_exit(
+            Exit::Usage,
+            "budget_too_small",
+            "no selected event fits --max-output-bytes; increase the budget or lower the metadata size",
+        );
+    }
     let mut stdout: String = match shared.output {
         crate::cli::QueryOutput::Jsonl => rendered_lines.concat(),
         crate::cli::QueryOutput::Text => {
@@ -1364,6 +1458,24 @@ fn render(
         })
     };
 
+    if page_cursor
+        .as_deref()
+        .is_some_and(|cursor| cursor.len() > MAX_CURSOR_TOKEN_BYTES)
+        || append_cursor
+            .as_deref()
+            .is_some_and(|cursor| cursor.len() > MAX_CURSOR_TOKEN_BYTES)
+    {
+        // Never emit a cursor that our own decoder would reject. This is an input-capacity
+        // problem, not an internal failure: surface it as a usage error before writing stdout.
+        return failure_with_exit(
+            Exit::Usage,
+            "cursor_too_large",
+            &format!(
+                "the query/filter combination produces a cursor larger than {MAX_CURSOR_TOKEN_BYTES} bytes; reduce --query, --role/--phase, or --context"
+            ),
+        );
+    }
+
     // Actual unknown/parse-error events, not a string heuristic over type keys.
     let unknown_events = stats.unknown_events;
     stats.aux_anchor_bytes = stats.aux_anchor_bytes.saturating_add(*aux_anchor_bytes);
@@ -1373,12 +1485,16 @@ fn render(
         .as_ref()
         .map(|r| r.incomplete || r.uninspected > 0 || r.invalid > 0)
         .unwrap_or(false);
-    let status_str =
-        if !stats.uninspected.is_empty() || stats.invalid > 0 || stats.source_changed || pair_gap {
-            "partial"
-        } else {
-            "ok"
-        };
+    let status_str = if !stats.uninspected.is_empty()
+        || stats.invalid > 0
+        || stats.source_changed
+        || stats.search_timed_out
+        || pair_gap
+    {
+        "partial"
+    } else {
+        "ok"
+    };
     let metadata = json!({
         "schema_version": QUERY_SCHEMA_VERSION,
         "record_type": "metadata",
@@ -1481,6 +1597,7 @@ fn render(
         "scan": {
             "hard_scope_events": stats.hard_scope_events,
             "scanned_events": stats.scanned_events,
+            "search_timed_out": stats.search_timed_out,
             "read_bytes": stats.read_bytes,
             "read_bytes_breakdown": {
                 "main": stats.read_bytes,
@@ -1538,7 +1655,8 @@ fn render(
         )),
     }
     if stdout.len() > budget {
-        return failure(
+        return failure_with_exit(
+            Exit::Usage,
             "budget_too_small",
             "required metadata envelope exceeds --max-output-bytes",
         );
@@ -1761,6 +1879,15 @@ fn validate_cursor(
     Ok(payload)
 }
 
+/// Default roots that are safe to pass to the scanner: absent (NotFound) defaults are omitted,
+/// while roots that exist but cannot be inspected are retained so `scan` reports `scan_io`.
+fn available_default_roots(provider: Provider, home: &Path) -> Vec<PathBuf> {
+    crate::query::sessions::default_roots(provider, home)
+        .into_iter()
+        .filter(|root| !matches!(fs::metadata(root), Err(err) if err.kind() == std::io::ErrorKind::NotFound))
+        .collect()
+}
+
 fn resolve_input(shared: &Shared) -> Result<Option<PathBuf>, Prepared> {
     if let Some(input) = &shared.input {
         return Ok(Some(input.clone()));
@@ -1782,18 +1909,34 @@ fn resolve_input(shared: &Shared) -> Result<Option<PathBuf>, Prepared> {
         let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
             return Err(usage("HOME is not set and no --root given"));
         };
-        roots = crate::query::sessions::default_roots(provider, &home);
+        roots = available_default_roots(provider, &home);
     }
-    if roots.is_empty() {
+    if roots.is_empty() && provider == Provider::OpenCode {
         return Err(usage(
             "OpenCode run logs need an explicit --root (no guessed database path)",
         ));
     }
-    let (candidates, _) = match crate::query::sessions::scan(&roots, provider, None, false, 10_000)
+    let (candidates, report) =
+        match crate::query::sessions::scan(&roots, provider, None, false, 10_000) {
+            Ok(result) => result,
+            Err(err) => return Err(failure("session_ambiguous", &err.to_string())),
+        };
+    if report.partial
+        || report.scan_limit_reached
+        || report.files_unreadable > 0
+        || report.records_uninspected > 0
+        || report.records_invalid > 0
     {
-        Ok(result) => result,
-        Err(err) => return Err(failure("session_ambiguous", &err.to_string())),
-    };
+        let reason = report
+            .limit_reason
+            .unwrap_or("scan_incomplete_or_unreadable_files");
+        return Err(failure(
+            "session_resolution_incomplete",
+            &format!("session resolution is incomplete ({reason}); narrow --root or use -i FILE"),
+        ));
+    }
+    // `report.ambiguous` may refer to an unrelated duplicate id. Only the requested id matters
+    // for `--session`; `sessions` still rejects any complete-scan duplicate below.
     let matches: Vec<&crate::query::sessions::SessionCandidate> = candidates
         .iter()
         .filter(|c| c.session_id == session_id)
@@ -1837,7 +1980,7 @@ fn file_mtime_ns(path: &Path) -> std::io::Result<u64> {
 
 fn read_byte_before(path: &Path, offset: u64) -> std::io::Result<u8> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
+    let mut file = crate::query::reader::open_regular(path)?;
     file.seek(SeekFrom::Start(offset - 1))?;
     let mut byte = [0u8; 1];
     file.read_exact(&mut byte)?;
@@ -1907,11 +2050,7 @@ fn prepare_sessions(args: &SessionsArgs) -> Prepared {
         };
         let mut roots = Vec::new();
         for provider in &providers {
-            for root in crate::query::sessions::default_roots(*provider, &home) {
-                if root.exists() {
-                    roots.push(root);
-                }
-            }
+            roots.extend(available_default_roots(*provider, &home));
         }
         roots
     } else {
@@ -1929,6 +2068,15 @@ fn prepare_sessions(args: &SessionsArgs) -> Prepared {
             args.scan_limit,
         ) {
             Ok((found, report)) => {
+                // Preserve the listing contract: any duplicate id in a complete scan is an
+                // ambiguity failure. `--session` resolution is narrower and filters by id.
+                if report.ambiguous && !report.partial {
+                    let id = report.ambiguous_session_id.as_deref().unwrap_or("unknown");
+                    return failure(
+                        "session_ambiguous",
+                        &format!("multiple files claim session id '{id}'"),
+                    );
+                }
                 candidates.extend(found);
                 reports.push(report);
             }
@@ -1974,7 +2122,12 @@ fn prepare_sessions(args: &SessionsArgs) -> Prepared {
             "files_scanned": reports.iter().map(|r| r.files_scanned).sum::<u64>(),
             "scan_limit": args.scan_limit,
             "scan_limit_reached": reports.iter().any(|r| r.scan_limit_reached),
+            "entries_visited": reports.iter().map(|r| r.entries_visited).sum::<u64>(),
+            "scan_bytes": reports.iter().map(|r| r.scan_bytes).sum::<u64>(),
+            "limit_reason": reports.iter().find_map(|r| r.limit_reason),
             "files_unreadable": reports.iter().map(|r| r.files_unreadable).sum::<u64>(),
+            "walk_errors": reports.iter().map(|r| r.walk_errors).sum::<u64>(),
+            "symlinks_skipped": reports.iter().map(|r| r.symlinks_skipped).sum::<u64>(),
             "files_skipped_no_id": reports.iter().map(|r| r.files_skipped_no_id).sum::<u64>(),
             "records_uninspected": reports.iter().map(|r| r.records_uninspected).sum::<u64>(),
             "records_invalid": reports.iter().map(|r| r.records_invalid).sum::<u64>(),
@@ -1990,7 +2143,11 @@ fn prepare_sessions(args: &SessionsArgs) -> Prepared {
     });
     stdout.push_str(&line(&metadata));
     if stdout.len() > budget {
-        return failure("budget_too_small", "sessions metadata exceeds the budget");
+        return failure_with_exit(
+            Exit::Usage,
+            "budget_too_small",
+            "sessions metadata exceeds the budget",
+        );
     }
     Prepared {
         exit: if partial { Exit::Failure } else { Exit::Ok },

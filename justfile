@@ -1,6 +1,8 @@
 # agent-jsonl-compact — task runner
 # Codex CLI / Claude Code / OpenCode run JSONL を軽量化する単体 Rust CLI。
 
+set positional-arguments
+
 # 一覧表示
 default:
     @just --list
@@ -25,12 +27,16 @@ lint:
     cargo clippy --all-targets -- -D warnings
 
 # 品質ゲート一括
-check: fmt-check lint test docs-check installer-check
+check: fmt-check lint test docs-check installer-check stats-check
 
 # インストーラーの静的検査と隔離した合成リリースでの回帰テスト
 installer-check:
     shellcheck install.sh
     python3 -m unittest discover -s tests -p 'test_installer.py' -v
+
+# just stats の引数がシェルで再解釈されないことを検査
+stats-check:
+    python3 tests/test_justfile.py -v
 
 # 日英ドキュメントのペアと相互リンクを検査
 docs-check:
@@ -54,7 +60,9 @@ demo: build
 
 # 形式とレコード型分布のみ表示(抽出はしない)
 stats input:
-    cargo run --release -- -i "{{input}}" --stats
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo run --release -- -i "$1" --stats
 
 # musl 静的バイナリをビルド(glibc 非依存・配布用)
 build-musl:
@@ -70,7 +78,8 @@ dist: build-musl
     name="${bin}-${target}"
     rm -rf dist && mkdir -p "dist/${name}"
     cp "target/${target}/release/${bin}" "dist/${name}/"
-    cp README.md LICENSE "dist/${name}/"
+    cp README.md README.en.md SECURITY.md SECURITY.en.md CHANGELOG.md CHANGELOG.ja.md LICENSE "dist/${name}/"
+    cp -R docs "dist/${name}/"
     tar -C dist -czf "dist/${name}.tar.gz" "${name}"
     ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
     ls -la dist

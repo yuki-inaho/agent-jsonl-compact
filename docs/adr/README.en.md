@@ -13,6 +13,7 @@ Add each new ADR as `NNNN-*.md` (Japanese) and `NNNN-*.en.md` (English); see [AD
 | [0004](0004-versioning-and-release-policy.en.md) | SemVer application, 0.x handling, patch/minor/major classification, weekly check | Accepted | [Japanese](0004-versioning-and-release-policy.md) |
 | [0005](0005-bilingual-documentation.en.md) | Japanese default, `*.en.md`, synchronization and checks | Accepted | [Japanese](0005-bilingual-documentation.md) |
 | [0006](0006-safe-installation-and-storage.en.md) | Dependency updates, MSRV, safe storage and installation | Implemented locally | [Japanese](0006-safe-installation-and-storage.md) |
+| [0007](0007-untrusted-log-evidence.en.md) | Untrusted log evidence, normalization/pairing/cursor/discovery/display resource boundaries | Implemented locally | [Japanese](0007-untrusted-log-evidence.md) |
 
 ## English summaries of existing ADRs
 

@@ -153,6 +153,9 @@ pub struct QEvent {
     /// Provider's original stable id (message/item id) when present; used for mirror pairing.
     pub origin_id: Option<String>,
     pub source: SourceRef,
+    /// True when the raw line number was produced by this scan; false when it was inherited
+    /// from a cursor and could not be independently verified.
+    pub raw_line_verified: bool,
     /// When this record is a provider mirror of another record, the shared explicit id.
     pub mirror_of: Option<String>,
     /// Provider/record relation for a mirror (kept, never text-deduped).

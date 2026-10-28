@@ -16,6 +16,29 @@ pub const DEFAULT_MAX_RECORD_BYTES: u64 = 1_048_576;
 /// Number of bytes kept immediately before a checkpoint for the lightweight anchor hash.
 pub const ANCHOR_WINDOW_BYTES: usize = 128;
 
+/// Open a source only if it is a regular file. On Unix the descriptor is opened non-blocking
+/// first so a FIFO cannot stall the process before the type check; regular-file reads ignore
+/// O_NONBLOCK.
+pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)?
+    };
+    #[cfg(not(unix))]
+    let file = File::open(path)?;
+    if !file.metadata()?.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source must be a regular file",
+        ));
+    }
+    Ok(file)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordSpan {
     /// 1-based physical line number.
@@ -66,7 +89,7 @@ pub struct SourceReader {
 impl SourceReader {
     /// Open `path` and fix the snapshot boundary at its current length.
     pub fn open(path: &Path, max_record_bytes: u64) -> io::Result<Self> {
-        let file = File::open(path)?;
+        let file = open_regular(path)?;
         let snapshot_end = file.metadata()?.len();
         Ok(Self {
             path: path.to_path_buf(),
@@ -299,7 +322,7 @@ pub fn anchor_window(path: &Path, checkpoint: u64) -> io::Result<Vec<u8>> {
     if checkpoint == 0 {
         return Ok(Vec::new());
     }
-    let mut file = File::open(path)?;
+    let mut file = open_regular(path)?;
     let len = ANCHOR_WINDOW_BYTES as u64;
     let start = checkpoint.saturating_sub(len);
     file.seek(SeekFrom::Start(start))?;

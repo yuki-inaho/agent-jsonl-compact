@@ -39,10 +39,12 @@ agent-jsonl-compact --version            # semver only (unchanged)
 agent-jsonl-compact version --output json
 ```
 
-`version --output json` returns `version`, the fixed `source_release_date`,
-`query_schema_version`, and `cursor_version`. The update date is defined in the source code.
-It differs from the build time and the GitHub Release update time
-([ADR 0003](adr/0003-version-and-release-metadata.md)).
+`version --output json` returns `version`, the fixed `source_release_date`, `source_commit`, `source_commit_dirty`,
+`query_schema_version`, and `cursor_version`. `source_commit` is the Git commit captured at build time (40 or 64
+hexadecimal digits), or `unknown` when no Git metadata was available. `source_commit_dirty` reports uncommitted changes
+present at build time, and is `null` (unknown) when Git was unavailable; unknown is never reported as clean. The build
+script checks Git on every build so incremental builds reflect branch advances and worktree edits. The update date
+differs from the build time and the GitHub Release update time ([ADR 0003](adr/0003-version-and-release-metadata.md)).
 
 ### 1. Find candidates — `sessions`
 
@@ -58,8 +60,18 @@ agent-jsonl-compact sessions --provider all --root ~/.claude/projects --output j
   To find OpenCode run JSONL, specify `--root`. OpenCode logs have no default search directory,
   and the command does not guess the location of `opencode.db`.
 - `--provider all` targets codex / claude_code / opencode.
+- An absent default root is intentionally skipped. A missing `--root` or a root that cannot be
+  read (for example because of permissions) is `status: partial` (`scan_io`).
+- Symlink entries inside a root are not followed. Each skipped symlink is counted in
+  `symlinks_skipped` and makes the result `status: partial` (`scan_symlink`) because the target
+  was not inspected. A root supplied as a symlink to a directory is followed.
+- A file above 64 MiB is skipped as `scan_file_bytes`; a scan above 256 MiB stops as `scan_bytes`.
+  Both are `status: partial`.
 - If `--scan-limit` (default 10000) is reached, the result reports `status: partial` and
   the unscanned remainder.
+- `--session` matches only the requested session id, so an unrelated duplicate does not block a
+  unique target. The `sessions` listing keeps `session_ambiguous` when a complete scan finds any
+  duplicate id.
 - Output reports the start time (`started_at`) and the last event time
   (`last_event_at`) separately. The command does not use file modification time (mtime)
   to determine whether a session is running or stopped.
@@ -80,10 +92,11 @@ agent-jsonl-compact view -i /path/rollout.jsonl --event EVENT_ID --output jsonl
 
 - The default scope is `messages`. `--scope tools` selects tools; even `--scope all`
   never exposes private reasoning, system, developer, or compaction content.
-- The default display count is 50 events. `--max-events` defaults to 200 and counts
-  selected events (primary), surrounding events (context), and matching tool calls or results (pair).
+- `view` displays 50 events by default; `search` returns 20 hits by default.
+  `--max-events` defaults to 200 (maximum 10,000) and counts selected events (primary),
+  surrounding events (context), and matching tool calls or results (pair).
 - `--with-pair` adds results whose `call_id` matches the selected tool call.
-  It reports one of five pairing states:
+  It reports one of six pairing states:
 
   | State | Meaning |
   |---|---|
@@ -92,6 +105,7 @@ agent-jsonl-compact view -i /path/rollout.jsonl --event EVENT_ID --output jsonl
   | `unknown_pair` | The scan is incomplete, so the result's absence is unconfirmed |
   | `orphan` | A result has no matching call |
   | `not_rendered_budget` | A matching event exists, but the output limit prevented its display |
+  | `ambiguous` | The same call_id appears more than once on the relevant side; `pair_reason` explains it |
 
 - `paired_total` is the total number of matching events; `paired_event_ids` lists the retained IDs.
   If the ID list is truncated, `paired_ids_truncated: true` marks the truncation and `pair_reentry`
@@ -118,9 +132,16 @@ agent-jsonl-compact search -i /path/rollout.jsonl --query 'timeout|retry' --rege
   `byte_end`.
 - `--context K` adds K events before and after within the allowed display scope (hard scope).
   Neighboring events may fall outside the role or time filters (soft filters) and are marked
-  `is_context: true`. Reasoning and developer content remain excluded.
-- If an event is both a hit and context for another hit, it is emitted once as
-  primary.
+  `is_context: true`. K is capped at 10,000. Context beyond the retention cap is omitted and
+  counted in `counts.context_dropped`.
+- `--phase` filters on comma-separated phase names recorded in the log; `--until` excludes events
+  at or after the given time. `--since` / `--until` require RFC3339 with an offset.
+- `search --with-pair` also adds the counterpart of a matching tool call or result.
+- If an event is both a hit and context for another hit, it is emitted once as primary.
+- At most 256 match ranges are retained per event. Above that, the event reports
+  `matched_ranges_truncated: true` and `matched_ranges_total`. Without truncation the total is
+  exact; when truncated it is a lower bound. Regex enumeration stops after 257 matches per query
+  (the smallest observation proving that 256 was exceeded). `matched_queries` is not dropped.
 
 ### 4. Locate events in the source log
 
@@ -220,3 +241,49 @@ Adding `--with-pair` requires up to two extra scans of the same snapshot to find
 so processing is not guaranteed to be proportional to the appended content alone (O(suffix)).
 
 Extraction and viewer flags are separate. `view --format-out md` is an argument error.
+
+### 9. Output fields and failure types
+
+#### Event records
+
+| Field | Meaning |
+|---|---|
+| `event_id` | `source_id:byte_start:subevent_index`; the raw line is not part of the identity |
+| `source.raw_line` | Display line number; inherited when resuming from a cursor |
+| `source.raw_line_verified` | Whether this scan verified the line number; `false` after cursor inheritance |
+| `timestamp` / `epoch_ms` | Original timestamp and parsed epoch milliseconds when possible |
+| `matched_ranges` | UTF-8 byte ranges in the original text, capped at 256 |
+| `matched_ranges_total` / `matched_ranges_truncated` | Observed match count (a lower bound when truncated; regex stops at 257 per query) and whether ranges were omitted |
+| `pair_state` / `pair_reason` / `paired_event_ids` | Tool-pair state, reason, and retained counterpart IDs |
+| `text_complete` | Whether displayed text was shortened (separate from an incomplete scan) |
+
+#### Metadata record
+
+`status` is `ok`, `partial`, or `error`. If a search exceeds its 30-second processing budget, `scan.search_timed_out` is `true` and the status is `partial`. `partial` means some range could not be confirmed:
+a scan limit, uninspected record, invalid record, unreadable file, or a source change during the
+read. Inspect `counts.invalid`, `counts.uninspected`, `counts.context_dropped`, and the `scan`
+values.
+
+For `sessions`, `scan` contains `files_scanned`, `scan_limit`, `scan_limit_reached`,
+`entries_visited`, `scan_bytes`, `walk_errors`, `symlinks_skipped`, and `limit_reason`.
+`limit_reason` is one of `scan_limit`, `scan_entries`, `scan_depth`, `scan_bytes`,
+`scan_file_bytes`, `scan_io`, `scan_symlink`, or `scan_time`. A missing default root is
+intentionally skipped; a missing explicit root, or a root/directory/entry that cannot be
+inspected (for example because of permissions), is counted in `walk_errors` and makes `status`
+`partial`. A symlink skipped without being followed is counted in `symlinks_skipped` and makes
+`status` `partial` as `scan_symlink`.
+
+#### Main errors
+
+| Type | Meaning |
+|---|---|
+| `session_not_found` | No candidate exists after a complete scan of the declared roots |
+| `session_ambiguous` | A complete scan found multiple files for the same session id |
+| `session_resolution_incomplete` | A scan limit, unreadable file, uninspected record, or invalid record prevents a unique/absent conclusion |
+| `cursor_invalid` | Cursor shape, generation, position, filters, or session does not match |
+| `budget_too_small` | The output budget cannot produce a page with progress (exit code 2) |
+| `cursor_too_large` | The query/filter combination would emit a cursor larger than 64 KiB (exit code 2) |
+| `source_unreadable` | The input cannot be read or is not a regular file |
+
+Discovery has bounds on entries, depth, and bytes. A truncated scan returns `partial` (exit code 1),
+never a successful claim that the unscanned range was complete.

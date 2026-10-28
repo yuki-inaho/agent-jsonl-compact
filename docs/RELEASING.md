@@ -17,7 +17,7 @@
 | 更新先 | 内容 |
 |---|---|
 | `Cargo.toml`, `Cargo.lock` | 同じパッケージ版 |
-| `src/query/version.rs` | ソース公開日の固定値 |
+| `src/query/version.rs` | ソース公開日の固定値。`source_commit` はビルド時に Git から取得する |
 | 版・日付を固定するテスト | 新しいmetadataとの一致 |
 | `CHANGELOG.md`, `CHANGELOG.ja.md` | 変更内容、互換性に影響する変更（Breaking）、移行方法 |
 | README・CLI・スキル等の日英ペア | 現在の手順と仕様。リリース履歴は書き足さない |
@@ -45,13 +45,14 @@ git tag -a vX.Y.Z -m "agent-jsonl-compact X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-`release.yml` はセキュリティ検査の成功後に、Linux x86_64 musl、macOS arm64、macOS x86_64向けのバイナリをビルドします。
+`release.yml` は `security.yml` と `ci.yml` の両方が成功した後に、Linux x86_64 musl、macOS arm64、macOS x86_64向けのバイナリをビルドします。
+`ci.yml` は同じコミットの fmt / clippy / test / docs / installer / MSRV / macOS native test を含みます。
 各環境で基本動作を確認するsmoke testを行い、すべて成功するとpublishジョブがReleaseに配布物を添付します。
 buildジョブの権限は読み取り専用で、publishジョブだけがReleaseへの書き込み権限を持ちます。
 
 | 配布物 | 内容 |
 |---|---|
-| `agent-jsonl-compact-<target>.tar.gz` | 同名ディレクトリ内のバイナリ、README、LICENSE |
+| `agent-jsonl-compact-<target>.tar.gz` | 同名ディレクトリ内のバイナリ、日英README、SECURITY、CHANGELOG、LICENSE、docs |
 | 同名の `.sha256` | tarballのSHA-256。署名による真正性の保証ではない |
 
 `vX.Y.Z-rc.N` はプレリリースとして公開し、最新安定版にはしません。

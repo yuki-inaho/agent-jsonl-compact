@@ -68,6 +68,13 @@ else:
             # Installation must never execute this synthetic downloaded program.
             add(f"{directory}/{BIN}", f"#!/bin/sh\ntouch '{self.root}/executed'\n".encode())
             add(f"{directory}/README.md")
+            add(f"{directory}/README.en.md")
+            add(f"{directory}/SECURITY.md")
+            add(f"{directory}/SECURITY.en.md")
+            add(f"{directory}/CHANGELOG.md")
+            add(f"{directory}/CHANGELOG.ja.md")
+            add(f"{directory}/docs/CLI.md")
+            add(f"{directory}/docs/adr/0007-untrusted-log-evidence.md")
             add(f"{directory}/LICENSE")
             if attack == "traversal":
                 add("../escaped")

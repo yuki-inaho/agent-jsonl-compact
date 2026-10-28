@@ -29,8 +29,8 @@ Points to decide:
 
 - Japanese: `README.md`, `docs/ONBOARDING.md`, `docs/RELEASING.md`, `docs/README.md`,
   `docs/adr/README.md`, and new ADRs as `NNNN-*.md`
-- English: `README.en.md`, `ONBOARDING.en.md`, `RELEASING.en.md`, `README.en.md`,
-  `README.en.md`, and `NNNN-*.en.md` in the same directories
+- English: `README.en.md`, `ONBOARDING.en.md`, `RELEASING.en.md`, `docs/README.en.md`,
+  `docs/adr/README.en.md`, and `NNNN-*.en.md` in the same directories
 
 Put a language switcher at the top of `README.md`, with Japanese shown by default. The
 English version must link back to Japanese.
@@ -44,6 +44,9 @@ Japanese/English pair.**
 - `docs/ONBOARDING.md` / `docs/ONBOARDING.en.md`
 - `docs/RELEASING.md` / `docs/RELEASING.en.md`
 - `docs/README.md` / `docs/README.en.md` (documentation index)
+- `docs/CLI.md` / `docs/CLI.en.md` (CLI reference)
+- `docs/INPUT_FORMATS.md` / `docs/INPUT_FORMATS.en.md` (input formats)
+- `SECURITY.md` / `SECURITY.en.md` (security)
 - `docs/adr/README.md` / `docs/adr/README.en.md` (ADR index)
 - Every new ADR (`NNNN-*.md` / `NNNN-*.en.md`)
 

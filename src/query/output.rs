@@ -12,13 +12,27 @@ pub const SCHEMA_RECORD_EVENT: &str = "event";
 pub const SCHEMA_RECORD_METADATA: &str = "metadata";
 
 /// Escape terminal control characters (ANSI, OSC, C1) so logs render safely.
+/// Newlines and tabs are preserved: this is the body/multiline variant.
 pub fn escape_controls(text: &str) -> String {
+    escape_controls_with(text, false)
+}
+
+/// Escape terminal control characters and also newlines/tabs, keeping one logical line.
+/// Use for timestamps, ids, headings, paths and diagnostics.
+pub fn escape_controls_singleline(text: &str) -> String {
+    escape_controls_with(text, true)
+}
+
+fn escape_controls_with(text: &str, singleline: bool) -> String {
     let mut out = String::with_capacity(text.len() + 8);
     for ch in text.chars() {
         match ch {
             '\u{1b}' => out.push_str("\\x1b"),
             '\u{9b}' => out.push_str("\\u{9b}"),
             '\u{07}' => out.push_str("\\x07"),
+            '\n' if singleline => out.push_str("\\n"),
+            '\r' if singleline => out.push_str("\\r"),
+            '\t' if singleline => out.push_str("\\t"),
             '\u{00}'..='\u{08}' | '\u{0b}'..='\u{1f}' | '\u{7f}' => {
                 out.push_str(&format!("\\x{:02x}", ch as u32));
             }
@@ -92,6 +106,7 @@ pub fn event_to_json(event: &QEvent, text_limit: usize) -> (Value, bool) {
         "source".into(),
         json!({
             "raw_line": event.source.raw_line,
+            "raw_line_verified": event.raw_line_verified,
             "byte_start": event.source.byte_start,
             "byte_end": event.source.byte_end,
             "subevent_index": event.source.subevent_index,
@@ -152,9 +167,13 @@ pub fn event_to_text(value: &Value) -> String {
         .unwrap_or(false);
     let text = value.get("text").and_then(Value::as_str).unwrap_or("");
     format!(
-        "--- [{line_no}.{sub}] {ts} {kind}/{role}{}{} ---\n{text}\n",
-        if context { " (context)" } else { "" },
-        if complete { "" } else { " (cut)" },
+        "--- [{line_no}.{sub}] {} {}/{} {}{} ---\n{}\n",
+        escape_controls_singleline(ts),
+        escape_controls_singleline(kind),
+        escape_controls_singleline(role),
+        if context { "(context) " } else { "" },
+        if complete { "" } else { "(cut)" },
+        escape_controls(text),
     )
 }
 

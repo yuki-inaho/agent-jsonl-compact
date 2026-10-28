@@ -51,11 +51,11 @@ L01/L02は今回の調査側自身の操作・観察であり、独立した別a
 
 | 現状 | 根拠と解釈 |
 |---|---|
-| 3形式の判別・正規化、JSONL／Markdown／summary出力、cut／dedup、stats、skill installがある | [CLI定義](../../src/cli.rs)、[runner](../../src/runner.rs)。新規に同じ抽出器を別実装しない |
+| 3形式の判別・正規化、JSONL／Markdown／summary出力、cut／dedup、stats、skill installがある | [CLI定義](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/cli.rs)、[runner](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/runner.rs)。新規に同じ抽出器を別実装しない |
 | 新Codex fixtureでterminalは本文を出さず、apiでuser／assistant本文が出る | 11 raw recordsのprobe：terminal 6 events（message本文0）、api 6（本文各1）、both 8。件数だけで閲覧成功と判定できない |
 | custom call/outputはどのchannelでも落ちる | 同fixtureのraw各1件、計2件が欠落。通常function call/output各1件は保持。全providerで全toolが落ちるという意味ではない |
 | 日時／role／検索／context／page／tail／follow／sessionsは現行CLIにない | 個別probeは未認識引数／subcommandとしてrc2。書き出したcleanへ外部commandを組み合わせれば代用できる |
-| rawは行単位で読むが、採用した全EventをVecへ蓄積する | [reader](../../src/util.rs)、[runner](../../src/runner.rs)。`--stats`もこの経路。raw全文一括loadとは言わない。RSSは未計測 |
+| rawは行単位で読むが、採用した全EventをVecへ蓄積する | [reader](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/util.rs)、[runner](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/runner.rs)。`--stats`もこの経路。raw全文一括loadとは言わない。RSSは未計測 |
 | raw行番号は内部で付くが出力eventへ残らない | 調査用索引を別作成する必要がある。clean行番号はraw行番号と異なる |
 | 不完全JSONのparse_errorを残してrc0で終わる例がある | parse_errorの有無と完全な読取りを、終了codeだけから判断できない |
 | skill installerは埋込SKILL.mdを配布する | supporting reference/scriptを追加する場合はinstaller側の対応も要る。文書だけ追加して配布完了とはしない |

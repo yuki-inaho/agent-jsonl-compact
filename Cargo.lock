@@ -4,11 +4,12 @@ version = 4
 
 [[package]]
 name = "agent-jsonl-compact"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "libc",
  "regex",
  "serde",
  "serde_json",
