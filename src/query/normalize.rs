@@ -19,6 +19,15 @@ use std::collections::VecDeque;
 /// Maximum number of raw-type coverage entries that keep their own key (bounded memory).
 pub const COVERAGE_TYPE_CAP: usize = 64;
 
+/// Per-record normalization limits. These bound the amplification from one physical line:
+/// repeated metadata is copied once per subevent, so each field and the number of subevents is
+/// capped before any event is built.
+pub const MAX_TIMESTAMP_BYTES: usize = 128;
+pub const MAX_ID_BYTES: usize = 512;
+pub const MAX_PHASE_BYTES: usize = 64;
+pub const MAX_SUBEVENTS_PER_RECORD: usize = 256;
+pub const MAX_NORMALIZED_BYTES_PER_RECORD: usize = 2 * 1024 * 1024;
+
 /// Bounded multiset for raw record types (exact counts, capped key cardinality).
 #[derive(Debug, Clone, Default)]
 pub struct TypeCoverage {
@@ -146,9 +155,23 @@ impl Normalizer {
             )];
         };
 
+        if let Some(reason) = metadata_limit_reason(self.provider, object) {
+            return self.rejected(span, source_id, reason);
+        }
+        if let Some(reason) = subevent_count_limit_reason(self.provider, object) {
+            return self.rejected(span, source_id, reason);
+        }
+
         // A file may contain records from more than one session (e.g. an appended export).
         // Trust the record's own metadata; never pair across sessions silently.
         if let Some(record_session) = record_session_id(self.provider, object) {
+            if record_session.len() > MAX_ID_BYTES {
+                return self.rejected(
+                    span,
+                    source_id,
+                    "normalization limit exceeded: session id is too long",
+                );
+            }
             self.session_id = record_session;
         }
 
@@ -157,6 +180,9 @@ impl Normalizer {
             Provider::ClaudeCode => claude_drafts(object),
             Provider::OpenCode => opencode_drafts(object),
         };
+        if let Some(reason) = drafts_limit_reason(&drafts) {
+            return self.rejected(span, source_id, reason);
+        }
 
         let mut out = Vec::with_capacity(drafts.len().min(8));
         for (index, draft) in drafts.into_iter().enumerate() {
@@ -214,6 +240,26 @@ impl Normalizer {
         }
     }
 
+    fn rejected(&mut self, span: RecordSpan, source_id: &str, reason: &'static str) -> Vec<QEvent> {
+        self.invalid_records += 1;
+        vec![self.event(
+            span,
+            0,
+            source_id,
+            Kind::ParseError,
+            "normalization_limit",
+            None,
+            None,
+            Origin::Unknown,
+            reason,
+            None,
+            None,
+            ToolObserved::None,
+            None,
+            None,
+        )]
+    }
+
     /// True when this event is a provider mirror of an already-emitted message: same explicit
     /// source id and same body. Text equality without an id never merges.
     fn is_explicit_mirror(&self, event: &QEvent) -> bool {
@@ -249,10 +295,9 @@ impl Normalizer {
         QEvent {
             provider: self.provider,
             session_id: self.session_id.clone(),
-            event_id: format!(
-                "{}:{}:{}:{}",
-                source_id, span.byte_start, subevent_index, span.raw_line
-            ),
+            // The raw line is deliberately excluded: a cursor can carry an unverified line
+            // number, and an event id must never turn that into evidence identity.
+            event_id: format!("{}:{}:{}", source_id, span.byte_start, subevent_index),
             timestamp_raw,
             epoch_ms,
             role,
@@ -271,6 +316,7 @@ impl Normalizer {
                 byte_end: span.byte_end,
                 subevent_index,
             },
+            raw_line_verified: true,
             mirror_of: None,
             mirror_relation: None,
             sequence: self.sequence,
@@ -291,6 +337,147 @@ struct Draft {
     observed: ToolObserved,
     origin_id: Option<String>,
     role: Option<Role>,
+}
+
+/// Bound the record metadata that the normalizer actually copies into a [`QEvent`].
+///
+/// The walk is context-aware: it visits the provider's known metadata paths instead of every
+/// `id`/`name` key in the record. Tool input (`message.content[].input`, `payload.arguments`,
+/// `part.state.input`, ...) is body text, not metadata, so a long `name` inside it no longer
+/// discards the whole record. ADR 0007 §2.1 scopes the cap to the identity fields
+/// (session id / call id / origin id / tool name) plus timestamp and phase.
+///
+/// Amplification is still bounded: metadata repeated across subevents is re-checked per draft in
+/// [`drafts_limit_reason`] before any event is built, and that function also caps the total
+/// normalized bytes of one record.
+fn metadata_limit_reason(provider: Provider, object: &Map<String, Value>) -> Option<&'static str> {
+    const IDENTIFIER_TOO_LONG: &str = "normalization limit exceeded: identifier is too long";
+    const TIMESTAMP_TOO_LONG: &str = "normalization limit exceeded: timestamp is too long";
+    const PHASE_TOO_LONG: &str = "normalization limit exceeded: phase is too long";
+
+    fn bounded(value: Option<&Value>, limit: usize, reason: &'static str) -> Option<&'static str> {
+        value
+            .and_then(Value::as_str)
+            .filter(|text| text.len() > limit)
+            .map(|_| reason)
+    }
+
+    if let Some(reason) = bounded(
+        object.get("timestamp"),
+        MAX_TIMESTAMP_BYTES,
+        TIMESTAMP_TOO_LONG,
+    ) {
+        return Some(reason);
+    }
+
+    match provider {
+        Provider::Codex => {
+            let payload = nested(object, "payload")?;
+            if let Some(reason) = bounded(payload.get("phase"), MAX_PHASE_BYTES, PHASE_TOO_LONG) {
+                return Some(reason);
+            }
+            for key in ["id", "item_id", "call_id", "name", "tool"] {
+                if let Some(reason) = bounded(payload.get(key), MAX_ID_BYTES, IDENTIFIER_TOO_LONG) {
+                    return Some(reason);
+                }
+            }
+            let tool = nested(payload, "invocation").and_then(|invocation| invocation.get("tool"));
+            bounded(tool, MAX_ID_BYTES, IDENTIFIER_TOO_LONG)
+        }
+        Provider::ClaudeCode => {
+            if let Some(reason) =
+                bounded(object.get("sessionId"), MAX_ID_BYTES, IDENTIFIER_TOO_LONG)
+            {
+                return Some(reason);
+            }
+            // Only the tool blocks carry identifiers that become event metadata. The record's
+            // `uuid` is not copied to a QEvent, so it is deliberately not bounded here.
+            let items = nested(object, "message")
+                .and_then(|message| message.get("content"))
+                .and_then(Value::as_array);
+            for item in items.into_iter().flatten() {
+                for key in ["id", "tool_use_id", "name"] {
+                    if let Some(reason) = bounded(item.get(key), MAX_ID_BYTES, IDENTIFIER_TOO_LONG)
+                    {
+                        return Some(reason);
+                    }
+                }
+            }
+            None
+        }
+        Provider::OpenCode => {
+            if let Some(reason) =
+                bounded(object.get("sessionID"), MAX_ID_BYTES, IDENTIFIER_TOO_LONG)
+            {
+                return Some(reason);
+            }
+            let part = nested(object, "part")?;
+            for key in ["id", "callID", "tool"] {
+                if let Some(reason) = bounded(part.get(key), MAX_ID_BYTES, IDENTIFIER_TOO_LONG) {
+                    return Some(reason);
+                }
+            }
+            None
+        }
+    }
+}
+
+fn subevent_count_limit_reason(
+    provider: Provider,
+    object: &Map<String, Value>,
+) -> Option<&'static str> {
+    let count = match provider {
+        Provider::ClaudeCode => object
+            .get("message")
+            .and_then(Value::as_object)
+            .and_then(|message| message.get("content"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        Provider::Codex => object
+            .get("payload")
+            .and_then(Value::as_object)
+            .and_then(|payload| payload.get("content"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        Provider::OpenCode => 0,
+    };
+    (count > MAX_SUBEVENTS_PER_RECORD).then_some("normalization limit exceeded: too many subevents")
+}
+
+fn drafts_limit_reason(drafts: &[Draft]) -> Option<&'static str> {
+    if drafts.len() > MAX_SUBEVENTS_PER_RECORD {
+        return Some("normalization limit exceeded: too many subevents");
+    }
+    let mut total = 0usize;
+    for draft in drafts {
+        if draft.timestamp_raw.as_deref().map_or(0, str::len) > MAX_TIMESTAMP_BYTES {
+            return Some("normalization limit exceeded: timestamp is too long");
+        }
+        if draft.phase.as_deref().map_or(0, str::len) > MAX_PHASE_BYTES {
+            return Some("normalization limit exceeded: phase is too long");
+        }
+        for (value, limit) in [
+            (draft.call_id.as_deref(), MAX_ID_BYTES),
+            (draft.origin_id.as_deref(), MAX_ID_BYTES),
+            (draft.tool_name.as_deref(), MAX_ID_BYTES),
+        ] {
+            if value.map_or(0, str::len) > limit {
+                return Some("normalization limit exceeded: identifier is too long");
+            }
+        }
+        total = total
+            .saturating_add(draft.text.len())
+            .saturating_add(draft.source_kind.len())
+            .saturating_add(draft.timestamp_raw.as_deref().map_or(0, str::len))
+            .saturating_add(draft.phase.as_deref().map_or(0, str::len))
+            .saturating_add(draft.call_id.as_deref().map_or(0, str::len))
+            .saturating_add(draft.origin_id.as_deref().map_or(0, str::len))
+            .saturating_add(draft.tool_name.as_deref().map_or(0, str::len));
+    }
+    (total > MAX_NORMALIZED_BYTES_PER_RECORD)
+        .then_some("normalization limit exceeded: normalized bytes are too large")
 }
 
 /// Explicit provider metadata marking a message as internal reasoning. This is a metadata-only
@@ -576,6 +763,76 @@ fn codex_drafts(object: &Map<String, Value>) -> Vec<Draft> {
 // Claude Code
 // ---------------------------------------------------------------------------
 
+/// One draft for one Claude `message.content[]` block.
+///
+/// `origin` is the provenance the record asserts (unknown for a plain record, framework for a
+/// meta-marked one). Tool blocks keep their kind in both cases: dropping a `tool_result` block
+/// because the row was framework-injected would make `--with-pair` report a result that exists
+/// as missing.
+fn claude_block_draft(
+    record_type: &str,
+    ts: Option<&str>,
+    role: Role,
+    index: usize,
+    item: &Map<String, Value>,
+    origin: Origin,
+) -> Option<Draft> {
+    let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+    let mut draft = tmp();
+    draft.source_kind = format!("claude/{record_type}#{index}");
+    draft.timestamp_raw = ts.map(str::to_string);
+    draft.origin = origin;
+    match item_type {
+        "text" => {
+            // Framework-injected text is private; a plain text block follows the record role.
+            draft.kind = if origin == Origin::Framework {
+                Kind::Injected
+            } else if role == Role::User {
+                Kind::User
+            } else {
+                Kind::Assistant
+            };
+            draft.role = Some(role);
+            draft.text = str_field(item, "text").unwrap_or_default();
+        }
+        "tool_use" => {
+            draft.kind = Kind::ToolCall;
+            draft.tool_name = item.get("name").and_then(Value::as_str).map(str::to_string);
+            draft.call_id = item.get("id").and_then(Value::as_str).map(str::to_string);
+            draft.text = item
+                .get("input")
+                .map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    other => json_text(other),
+                })
+                .unwrap_or_default();
+        }
+        "tool_result" => {
+            draft.kind = Kind::ToolOutput;
+            // Tool results are provider-produced, not human-authored.
+            draft.call_id = item
+                .get("tool_use_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            draft.text = item
+                .get("content")
+                .map(|v| text_from(Some(v)))
+                .unwrap_or_default();
+            let is_error = item.get("is_error").and_then(Value::as_bool) == Some(true);
+            draft.observed = ToolObserved::Returned {
+                is_error,
+                status: None,
+            };
+        }
+        "thinking" | "redacted_thinking" => {
+            draft.kind = Kind::Reasoning;
+            draft.text = str_field(item, "thinking").unwrap_or_default();
+        }
+        _ => return None,
+    }
+    Some(draft)
+}
+
 fn claude_drafts(object: &Map<String, Value>) -> Vec<Draft> {
     let record_type = object.get("type").and_then(Value::as_str).unwrap_or("");
     let ts = str_field(object, "timestamp");
@@ -606,13 +863,41 @@ fn claude_drafts(object: &Map<String, Value>) -> Vec<Draft> {
         return vec![draft];
     }
     if is_meta {
+        // `isMeta` marks a framework-injected record, but the flag can also sit on a row that
+        // carries tool traffic. Collapsing such a row into one private text draft erased the
+        // tool block, and `--with-pair` then asserted "no result" for a result that exists.
+        // Keep the framework provenance and the blocks the row actually carries.
+        let content = message.and_then(|m| m.get("content"));
+        let items = content.and_then(Value::as_array);
+        if let Some(items) = items.filter(|items| {
+            items.iter().any(|item| {
+                matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some("tool_use") | Some("tool_result")
+                )
+            })
+        }) {
+            for (index, item) in items.iter().enumerate() {
+                let Some(item_object) = item.as_object() else {
+                    continue;
+                };
+                if let Some(draft) = claude_block_draft(
+                    record_type,
+                    ts.as_deref(),
+                    Role::User,
+                    index,
+                    item_object,
+                    Origin::Framework,
+                ) {
+                    out.push(draft);
+                }
+            }
+            return out;
+        }
         let mut draft = make(
             0,
             Kind::Injected,
-            message
-                .and_then(|m| m.get("content"))
-                .map(|v| text_from(Some(v)))
-                .unwrap_or_default(),
+            content.map(|v| text_from(Some(v))).unwrap_or_default(),
         );
         draft.origin = Origin::Framework;
         draft.role = Some(Role::User);
@@ -648,71 +933,15 @@ fn claude_drafts(object: &Map<String, Value>) -> Vec<Draft> {
                         let Some(item_object) = item.as_object() else {
                             continue;
                         };
-                        let item_type = item_object
-                            .get("type")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        match item_type {
-                            "text" => {
-                                let mut draft = make(
-                                    index,
-                                    if role == Role::User {
-                                        Kind::User
-                                    } else {
-                                        Kind::Assistant
-                                    },
-                                    str_field(item_object, "text").unwrap_or_default(),
-                                );
-                                draft.role = Some(role);
-                                draft.origin = Origin::Unknown;
-                                out.push(draft);
-                            }
-                            "tool_use" => {
-                                let mut draft = make(index, Kind::ToolCall, String::new());
-                                draft.origin = Origin::Unknown;
-                                draft.tool_name = item_object
-                                    .get("name")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string);
-                                draft.call_id = item_object
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string);
-                                draft.text = item_object
-                                    .get("input")
-                                    .map(|v| match v {
-                                        Value::String(s) => s.clone(),
-                                        other => json_text(other),
-                                    })
-                                    .unwrap_or_default();
-                                out.push(draft);
-                            }
-                            "tool_result" => {
-                                let mut draft = make(index, Kind::ToolOutput, String::new());
-                                // Tool results are provider-produced, not human-authored.
-                                draft.origin = Origin::Unknown;
-                                draft.call_id = item_object
-                                    .get("tool_use_id")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string);
-                                draft.text = item_object
-                                    .get("content")
-                                    .map(|v| text_from(Some(v)))
-                                    .unwrap_or_default();
-                                let is_error = item_object.get("is_error").and_then(Value::as_bool)
-                                    == Some(true);
-                                draft.observed = ToolObserved::Returned {
-                                    is_error,
-                                    status: None,
-                                };
-                                out.push(draft);
-                            }
-                            "thinking" | "redacted_thinking" => {
-                                let mut draft = make(index, Kind::Reasoning, String::new());
-                                draft.text = str_field(item_object, "thinking").unwrap_or_default();
-                                out.push(draft);
-                            }
-                            _ => {}
+                        if let Some(draft) = claude_block_draft(
+                            record_type,
+                            ts.as_deref(),
+                            role,
+                            index,
+                            item_object,
+                            Origin::Unknown,
+                        ) {
+                            out.push(draft);
                         }
                     }
                 }

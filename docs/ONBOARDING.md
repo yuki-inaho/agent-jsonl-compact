@@ -20,6 +20,8 @@ summaryは件数・パス等の情報であり、会話本文の代わりには�
 実ログ・抽出物・認証情報をコミットしたり、外部へ送信したりしないでください。
 
 閲覧の入力行サイズと表示量の上限、`partial` の条件、カーソルの再開・検証の仕様を維持してください。
+`event_id` は `source_id:byte_start:subevent_index` で、cursor 継承の行番号を含めません。
+`source.raw_line_verified=false` は行番号が未検証であることを示します。
 抽出は行単位で読みますが、保存対象の全イベントをメモリに保持します。保存対象のデータ量が増えるほど、必要なメモリも増えます。
 出力先ディレクトリからの脱出、入力ファイルの置換、シンボリックリンク先の上書きを拒否します。
 Unixの保存ファイルは、所有者だけが読み書きできる権限にします。
@@ -83,7 +85,10 @@ cargo run --locked -- search -i tests/fixtures/codex_sample.jsonl --query hello 
 | `src/detect.rs`, `src/classify.rs`, `src/clean.rs` | 抽出用の判定・正規化・フィルター |
 | `src/runner.rs`, `src/render.rs` | ファイル保存・スキル配置・Markdown |
 | `src/query/` | 上限付きの読み取り、表示範囲、検索、カーソル、ツール呼出しと結果の対応付け |
+| `build.rs`, `src/query/version.rs` | `source_commit` と固定 source release date |
 | `tests/security.rs`, `tests/test_installer.py` | 保存先の制約とインストーラーの回帰テスト |
-| `.github/workflows/`, `justfile` | 品質・セキュリティ・配布の検査 |
+| `tests/security_hardening_e2e.rs` | F-01〜F-09 の資源・表示・対応付け・cursor・探索の回帰 |
+| `tests/test_justfile.py` | `just stats` の引数注入回帰 |
+| `.github/workflows/`, `justfile` | 品質・セキュリティ・配布の検査。release は ci と security の両方を要求 |
 
 CLIヘルプは `cargo run --locked -- --help`。依存関係は `Cargo.toml` / `Cargo.lock` を確認してください。

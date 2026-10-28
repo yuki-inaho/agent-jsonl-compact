@@ -17,7 +17,7 @@ Treat increases in the minimum supported Rust version (MSRV) and changes to exis
 | Update | Content |
 |---|---|
 | `Cargo.toml`, `Cargo.lock` | Matching package version |
-| `src/query/version.rs` | Fixed source release date |
+| `src/query/version.rs` | Fixed source release date; `source_commit` is captured from Git at build time |
 | Tests with fixed version/date | Match the new metadata |
 | `CHANGELOG.md`, `CHANGELOG.ja.md` | Changes, breaking changes, and migration steps |
 | README, CLI, skill, and other language pairs | Current procedures and behavior; keep release history in CHANGELOG |
@@ -45,13 +45,15 @@ git tag -a vX.Y.Z -m "agent-jsonl-compact X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-After security checks succeed, `release.yml` builds Linux x86_64 musl, macOS arm64, and macOS x86_64.
-Smoke tests check basic behavior on each target. Publication requires all builds to succeed.
-Build jobs have read permission; only the publish job can write Release assets.
+After `security.yml` and `ci.yml` both succeed, `release.yml` builds Linux x86_64 musl,
+macOS arm64, and macOS x86_64. `ci.yml` covers fmt / clippy / test / docs / installer / MSRV /
+macOS native tests for the same commit. Smoke tests check basic behavior on each target.
+Publication requires all builds to succeed. Build jobs have read permission; only the publish job
+can write Release assets.
 
 | Asset | Contents |
 |---|---|
-| `agent-jsonl-compact-<target>.tar.gz` | Binary, README, and LICENSE inside the matching directory |
+| `agent-jsonl-compact-<target>.tar.gz` | Binary, Japanese/English README, SECURITY, CHANGELOG, LICENSE, and docs inside the matching directory |
 | Matching `.sha256` | Tarball SHA-256; not signature-based authenticity |
 
 Tags such as `vX.Y.Z-rc.N` publish prereleases and do not become the latest stable release.

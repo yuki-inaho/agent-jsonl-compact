@@ -37,6 +37,7 @@ check_pair docs/adr/README.md docs/adr/README.en.md
 check_pair docs/adr/0004-versioning-and-release-policy.md docs/adr/0004-versioning-and-release-policy.en.md
 check_pair docs/adr/0005-bilingual-documentation.md docs/adr/0005-bilingual-documentation.en.md
 check_pair docs/adr/0006-safe-installation-and-storage.md docs/adr/0006-safe-installation-and-storage.en.md
+check_pair docs/adr/0007-untrusted-log-evidence.md docs/adr/0007-untrusted-log-evidence.en.md
 
 if [ "$fail" -ne 0 ]; then
   echo "docs language pairs: FAILED"

@@ -13,6 +13,7 @@
 | [0004](0004-versioning-and-release-policy.md) | SemVer の適用、0.x の扱い、patch/minor/major の分類、週次チェック | Accepted | [English](0004-versioning-and-release-policy.en.md) |
 | [0005](0005-bilingual-documentation.md) | 日本語デフォルト、`*.en.md`、同期と検査 | Accepted | [English](0005-bilingual-documentation.en.md) |
 | [0006](0006-safe-installation-and-storage.md) | 依存関係の更新、MSRV、安全な保存と導入 | Implemented locally | [English](0006-safe-installation-and-storage.en.md) |
+| [0007](0007-untrusted-log-evidence.md) | 非信頼ログの証拠化、正規化・対応付け・cursor・探索・表示の資源境界 | Implemented locally | [English](0007-untrusted-log-evidence.en.md) |
 
 ## 既存ADRの英語要約
 

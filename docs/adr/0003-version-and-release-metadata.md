@@ -94,7 +94,7 @@
 | 検査 | 方法 |
 |---|---|
 | 版の一致 | `tests/viewer_e2e.rs::a11_version_consistency` が `--version` と `version --output json` を比較 |
-| 単一定数 | [src/query/version.rs](../../src/query/version.rs) の unit test `version_matches_cargo_and_date_is_fixed` |
+| 単一定数 | [src/query/version.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/version.rs) の unit test `version_matches_cargo_and_date_is_fixed` |
 | legacy 互換 | `a11_legacy_outputs_and_exit_codes_stable` |
 | installer | `a11_installer_matrix_nine_cases`（空/既存同内容/既存別内容 × all/claude-only/codex-only） |
 | MSRV | `cargo +1.74.0 build` を変更 crate に対して実行し、receipt を残す |
@@ -102,9 +102,9 @@
 再現:
 
 ```bash
-rtk proxy cargo test --test viewer_e2e a11_version_consistency
-rtk proxy cargo test --test viewer_e2e a11_installer_matrix_nine_cases
-rtk proxy cargo +1.74.0 build
+cargo test --test viewer_e2e a11_version_consistency
+cargo test --test viewer_e2e a11_installer_matrix_nine_cases
+cargo +1.74.0 build
 ./target/debug/agent-jsonl-compact version --output json
 ```
 
@@ -132,3 +132,12 @@ rtk proxy cargo +1.74.0 build
   transcript は `--format-out md|both`、summary は `--summary` で明示する。
 - query schema v1、cursor v1、legacy clean schema、終了コードは不変。
 - `SOURCE_RELEASE_DATE` は 0.4.0 も `2026-10-23`（同日リリースのため）。
+
+## 9. 追補 — 0.5.0（2026-10-28）
+
+- `version --output json` に `source_commit` を追加した。値はビルド時の Git HEAD で、
+  Git 情報がないビルドは `unknown`。`source_release_date` は固定日 `2026-10-28` のまま。
+- release workflow は `ci.yml` と `security.yml` の両成功を build の前提にした。
+- MSRV は ADR 0006 の決定により 1.88。ADR 0003 §2.4 の 1.74 固定は履歴として残す。
+- query schema は v1 を維持し、追加フィールドと `pair_state=ambiguous` で互換性を保つ。
+  `event_id` の形式変更は Breaking として CHANGELOG に記録した。

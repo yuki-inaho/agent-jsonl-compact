@@ -1,6 +1,6 @@
 [package]
 name = "agent-jsonl-compact"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Compact OpenAI Codex CLI, Anthropic Claude Code, and OpenCode session JSONL into clean JSONL, Markdown, and summary JSON."
@@ -9,6 +9,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.104"
 base64 = "0.23"
+libc = "0.2"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

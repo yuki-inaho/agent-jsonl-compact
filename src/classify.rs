@@ -372,11 +372,19 @@ fn classify_claude(object: &JsonObject) -> Vec<Event> {
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    // Provenance must be decided before the generic `type:user` branch: a compact summary or
+    // framework injection is not a human message even when Claude stores it under `type:user`.
+    if json_truthy(object.get("isCompactSummary")) || record_type == "summary" {
+        return classify_claude_summary(object, ts);
+    }
+    if object.get("isMeta").and_then(Value::as_bool) == Some(true) {
+        return classify_claude_meta(object, ts);
+    }
+
     match record_type {
         "user" => classify_claude_user(object, ts, sidechain),
         "assistant" => classify_claude_assistant(object, ts, sidechain),
         "summary" => classify_claude_summary(object, ts),
-        _ if json_truthy(object.get("isCompactSummary")) => classify_claude_summary(object, ts),
         _ => vec![event([
             ("ts", ts),
             ("kind", string("cc_meta")),
@@ -503,7 +511,21 @@ fn classify_claude_summary(object: &JsonObject, ts: Value) -> Vec<Event> {
     vec![event([
         ("ts", ts),
         ("kind", string("compacted")),
+        ("origin", string("compaction")),
+        ("is_compact_summary", Value::Bool(true)),
         ("message", string(summary)),
+    ])]
+}
+
+fn classify_claude_meta(object: &JsonObject, ts: Value) -> Vec<Event> {
+    let message = object.get("message").and_then(Value::as_object);
+    let text = text_from(map_get(message, "content"));
+    vec![event([
+        ("ts", ts),
+        ("kind", string("injected")),
+        ("origin", string("framework")),
+        ("is_meta", Value::Bool(true)),
+        ("text", string(text)),
     ])]
 }
 

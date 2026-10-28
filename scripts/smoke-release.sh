@@ -12,6 +12,7 @@ test -f "$fixture"
 
 "$bin" --version
 "$bin" version --output json | grep -q '"version"'
+"$bin" version --output json | grep -q '"source_commit"'
 "$bin" -i "$fixture" --stats >/dev/null
 "$bin" view -i "$fixture" --tail 3 --output jsonl >/dev/null
 "$bin" search -i "$fixture" --query jsonl --context 1 --output jsonl >/dev/null
@@ -25,4 +26,30 @@ test -s "$out/default/claude_desktop_sample.clean.jsonl"
 test -s "$out/all/claude_desktop_sample.clean.jsonl"
 test -s "$out/all/claude_desktop_sample.transcript.md"
 
-echo "smoke OK: $bin"
+# F-01: destination boundaries on the actual release binary.
+simple="${3:-tests/fixtures/codex_sample.jsonl}"
+mkdir -p "$out/link"
+victim="$out/victim"
+printf 'keep\n' > "$victim"
+ln -s "$victim" "$out/link/codex_sample.clean.jsonl"
+if "$bin" -i "$simple" -o "$out/link" >/dev/null 2>&1; then
+  echo "release boundary check failed: symlink destination was accepted" >&2
+  exit 1
+fi
+test "$(cat "$victim")" = keep
+if "$bin" -i "$simple" -o "$out/traversal" --name ../escape >/dev/null 2>&1; then
+  echo "release boundary check failed: path traversal was accepted" >&2
+  exit 1
+fi
+cp "$simple" "$out/alias.clean.jsonl"
+if "$bin" -i "$out/alias.clean.jsonl" -o "$out" --name alias >/dev/null 2>&1; then
+  echo "release boundary check failed: input replacement was accepted" >&2
+  exit 1
+fi
+"$bin" -i "$simple" -o "$out/perm" >/dev/null
+if mode="$(stat -c %a "$out/perm/codex_sample.clean.jsonl" 2>/dev/null)"; then :; else
+  mode="$(stat -f %Lp "$out/perm/codex_sample.clean.jsonl")"
+fi
+test "$mode" = 600
+
+echo "smoke OK: $bin (destination boundaries and 0600 verified)"

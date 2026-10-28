@@ -4,27 +4,41 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
-## Unreleased
+## 0.5.0 — 2026-10-28
+
+Source release date: **2026-10-28** (fixed release date; not a build timestamp).
 
 ### Breaking
 
+- `event_id` is now `source_id:byte_start:subevent_index`; the unverified raw line is no longer part of the identity. Old `--event` IDs and event IDs returned by old cursors cannot be re-fetched.
+- Viewer JSONL adds `source.raw_line_verified`, `matched_ranges_total`, `matched_ranges_truncated`, `pair_reason`, and `pair_state=ambiguous`. The existing five pair states are unchanged.
+- Per-record normalization limits: timestamp 128 bytes, identifiers 512 bytes, phase 64 bytes, subevents 256, normalized content 2 MiB. Records above a limit become `parse_error` with `status: partial`; previously accepted oversized records are rejected.
 - Source builds now require Rust 1.88; update `time` and `anyhow` past known RustSec advisories.
 - `install-skills` preserves existing files; use `--force` after review to replace them. Symlinked skills are rejected.
 - Extraction rejects path separators/control characters in output names, input aliases, and non-regular destinations.
 
-### Security and documentation
+### Security
 
+- **F-01 distribution:** include the safe storage and installer work that was missing from v0.4.0. Keep output-name validation, symlink/destination/input rejection, same-directory atomic replacement, Unix 0600, existing-skill preservation, and installer tag/checksum/archive checks. Add `source_commit` and `source_commit_dirty` to `version --output json`; the release workflow now requires CI and security success for the same commit.
+- **F-02 developer helper:** `just stats` uses `set positional-arguments` and `"$1"` instead of embedding the file name in a shell program.
+- **F-03 normalization:** reject long timestamps/identifiers and too many subevents before draft construction, bounding amplification from an input below 1 MiB.
+- **F-04 display:** route timestamps, IDs, headings, and diagnostics through `escape_controls_singleline`. Bodies keep newlines; internal JSON values stay raw.
+- **F-05 resources:** cap search matches at 256 and report `matched_ranges_truncated`. If no primary event fits, fail with rc2 `budget_too_small` instead of returning rc0 with the same page cursor. Keep an absolute context-retention cap, reject FIFO/socket sources, and bound scan entries, depth, bytes, and time; search has a 30-second processing budget.
+- **F-06 pairing:** use a structured provider + session + call_id key and match calls only with results. Distinguish other sessions, delimiter-containing IDs, duplicate IDs, call-only and result-only cases; duplicates become `ambiguous`.
+- **F-07 cursors:** bound and validate token, arrays, strings, integers, and positions. Verify the session id against the source and never use an unverified line number in an event id. Extreme integers must not panic.
+- **F-08 discovery:** when a scan limit, unreadable file, uninspected record, or invalid record remains, `view --session` / `search --session` return `session_resolution_incomplete` instead of claiming uniqueness or absence. Aggregate parse state before candidate selection.
+- **F-09 extraction:** preserve `isMeta` as `injected` / `origin=framework` and `isCompactSummary` as `compacted` / `origin=compaction`. Fence Markdown message bodies so body-derived headings and external images cannot be confused with generated structure. Document that log content never grants current authority, approval, or side-effect permission.
 - Save outputs through private temporary files; safely replace existing files without following destination links. Escape terminal control characters in statistics, reports, and errors.
 - Validate installer tags, checksums, archive members and file types; stage installation and do not execute downloaded binaries.
 - Add daily security checks and a release gate, pin Action commits, reduce release permissions, and avoid shell interpolation of event input.
-- Shorten Japanese/English guides; move CLI details and input provenance into reference documents.
-
-## Unreleased
+- `release-verify` also runs after a successful `release` workflow (`workflow_run`), because a Release created with `GITHUB_TOKEN` does not trigger `release: published`.
 
 ### Changed
 
-- `release-verify` now also runs after a successful `release` workflow (`workflow_run`),
-  because a Release created with `GITHUB_TOKEN` does not trigger `release: published`.
+- Release tarballs now include README.en.md, SECURITY, CHANGELOG, and docs so relative links from the extracted README resolve.
+- Shorten Japanese/English guides and move CLI details and input provenance into reference documents. Add `source_commit`, `raw_line_verified`, match truncation, pair `ambiguous`, `session_resolution_incomplete`, and scan limits to the CLI reference.
+- `version --output json` refreshes `source_commit` and `source_commit_dirty` on incremental builds, including linked worktrees. When Git is unavailable, the dirty state is `null` (unknown) instead of clean.
+- Record the new decisions in ADR 0007.
 
 ## 0.4.0 — 2026-10-23
 

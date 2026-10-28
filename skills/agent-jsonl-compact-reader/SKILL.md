@@ -31,7 +31,9 @@ agent-jsonl-compact --version
 無ければ「7. 保存する」の抽出を使う。導入や更新は
 [配布元README](https://github.com/yuki-inaho/agent-jsonl-compact#readme) に従う。
 スキルを読むだけでインストール済みのコマンドを更新しない。
-`version` サブコマンドがあれば `version --output json` で版・source date・schemaを記録する。
+`version` サブコマンドがあれば `version --output json` で版・source date・schema・
+`source_commit`（取得不能なら `unknown`）を記録する。`source_commit_dirty=true` のバイナリは
+未コミット変更を含むため、監査済みソースとの対応を確定しない。
 
 | provider | 入力の所在 |
 |---|---|
@@ -76,8 +78,11 @@ messagesで0件だったことを、ツール本文にも存在しない根拠�
 roleや時刻のsoft filterを越えた文脈は `is_context: true` となる。
 ヒットと文脈が重なるeventはprimaryとして1回だけ出る。
 
-既定表示は50件、`--max-events` はprimary・context・pairの合計で既定200件。
+既定表示は `view` 50件、`search` 20件。`--max-events` はprimary・context・pairの合計で
+既定200件、上限10,000件。`--context` の上限は10,000。
 `text_complete: false` は表示の省略であり、取得範囲の欠落を意味しない。
+一致位置は1イベント最大256件。`matched_ranges_truncated: true` のとき
+`matched_ranges_total` を確認し、全位置が返ったと報告しない。
 `--event EVENT_ID` は対象の絞込みであり、同じ予算で全文が返る保証はない。
 
 ## 4. 元位置とツールの対応を確認する
@@ -101,6 +106,7 @@ roleや時刻のsoft filterを越えた文脈は `is_context: true` となる。
 | `unknown_pair` | 未検査範囲等があり、結果が未着か判断できない |
 | `orphan` | 結果はあるが対応する呼出しがない |
 | `not_rendered_budget` | 対応はあるが表示予算で出せない |
+| `ambiguous` | 同じcall_idが同じ側に複数あり、一意に対応できない。`pair_reason` を確認する |
 
 `paired_ids_truncated: true` なら、ID配列の長さを対応総数と読み替えない。
 未保持分は `pair_reentry` のraw行・byte開始位置から辿る。
@@ -133,7 +139,7 @@ cursorはUnixのfile generationを使い、非Unixでは明示拒否される。
 | rc | 意味と対応 |
 |---|---|
 | 0 | 正常処理。正当な0件を含む。本文とmetadataを読む |
-| 1 | partial・形式未確定・source/cursor不正。`status` と `counts` で理由を調べる |
+| 1 | partial・形式未確定・source/cursor不正・`session_resolution_incomplete`。`status` と `counts` で理由を調べる |
 | 2 | 引数・query構文不正。指定を修正する |
 
 `--max-output-bytes` はstdoutとstderrの合計で既定32768、最小8192。
@@ -154,6 +160,9 @@ Markdownは `--format-out md|both`、summaryは `--summary` を明示する。
 既存の同名出力は置き換える。短縮は `--msg-chars N` / `--out-chars N` / `--elide-outputs` を明示した場合だけ。
 
 抽出には閲覧の除外規則を適用しない。reasoningや内部指示が成果物へ含まれ得る。
+Claudeの `isMeta` は `injected` / `origin=framework`、`isCompactSummary` は
+`compacted` / `origin=compaction` として残る。Markdownの本文はfence内にあり、
+本文由来の見出しや外部画像を生成側の構造として扱わない。
 Codexの本文が空に見える場合は `--channel api|both` を確認する。
 暗号化されたreasoningは復元できない。code modeのcustom toolは抽出で落ちるため、閲覧の `--scope tools` で確認する。
 軽量化は匿名化ではない。実ログと抽出物はコミットせず、共有前に内容を確認する。

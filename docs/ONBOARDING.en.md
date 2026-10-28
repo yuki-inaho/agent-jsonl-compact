@@ -20,6 +20,8 @@ The viewer always excludes reasoning, system, developer, and compaction content.
 Never commit or send real logs, their exports, or credentials to external services.
 
 Preserve input line and display limits, the conditions for `partial` status, and cursor resume and validation behavior.
+`event_id` is `source_id:byte_start:subevent_index` and never includes a line number inherited from a cursor.
+`source.raw_line_verified=false` marks an unverified display line number.
 Extraction reads one line at a time but keeps all selected events in memory. Memory use grows with the amount of selected data.
 Reject paths outside the output directory, replacement of the input file, and writes through symbolic links.
 On Unix, only the owner may read and write saved files.
@@ -83,7 +85,10 @@ Preserve unrelated user changes. Report macOS or remote Actions checks as passed
 | `src/detect.rs`, `src/classify.rs`, `src/clean.rs` | Extraction detection, normalization, filtering |
 | `src/runner.rs`, `src/render.rs` | Saving files, installing skills, Markdown |
 | `src/query/` | Bounded reader, scope, search, cursors, tool pairs |
+| `build.rs`, `src/query/version.rs` | `source_commit` and fixed source release date |
 | `tests/security.rs`, `tests/test_installer.py` | Filesystem and installer regressions |
-| `.github/workflows/`, `justfile` | Quality, security, and release checks |
+| `tests/security_hardening_e2e.rs` | F-01–F-09 resource, display, pairing, cursor, and discovery regressions |
+| `tests/test_justfile.py` | `just stats` argument-injection regression |
+| `.github/workflows/`, `justfile` | Quality, security, and release checks; release requires both ci and security |
 
 Run `cargo run --locked -- --help` for CLI help; inspect `Cargo.toml` / `Cargo.lock` for dependencies.

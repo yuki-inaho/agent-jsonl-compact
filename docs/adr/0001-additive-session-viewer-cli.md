@@ -37,11 +37,11 @@ F08 stdout 返却と診断分離 / F09 legacy 互換 / F10 形式未確定・不
 - 新コマンドは別の終了コード契約を持つ: `0` 正常処理（正当な0件を含む）/ `1` source・decode・
   形式未確定・partial・cursor 不正 / `2` 引数・query 構文不正。
 - 新規出力は query schema v1（`schema_version: 1`）として legacy clean schema と分離する
-  （[src/query/model.rs](../../src/query/model.rs)）。`event` 行と最後の `metadata` 行だけで構成し、診断は stderr。
+  （[src/query/model.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/model.rs)）。`event` 行と最後の `metadata` 行だけで構成し、診断は stderr。
 
 ### 2.1 共通の bounded reader
 
-[src/query/reader.rs](../../src/query/reader.rs) の `SourceReader` が物理行を1本ずつ返す。設計上の不変条件:
+[src/query/reader.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/reader.rs) の `SourceReader` が物理行を1本ずつ返す。設計上の不変条件:
 
 - open 時点の `snapshot_end = file.metadata().len()` を固定し、**それ以降の追記を読まない**
   （`reader.rs` の `fill_buf` / `consume` ループは `snapshot_end` で窓を切る）。
@@ -54,19 +54,19 @@ F08 stdout 返却と診断分離 / F09 legacy 互換 / F10 形式未確定・不
 
 - 3形式（Codex / Claude Code / OpenCode run JSONL）を `--format` 明示または内容からの証拠判定で
   選ぶ。判定不能は `format_uncertain`、認識済み provider の混在は `format_inconsistent` で
-  fail closed し、推測した provider の 0 件成功に隠さない（[src/query/detect.rs](../../src/query/detect.rs)）。
+  fail closed し、推測した provider の 0 件成功に隠さない（[src/query/detect.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/detect.rs)）。
 - `message_origin` は source 上で判別できる範囲で `human` / `framework` / `compaction` /
   `unknown` を持つ。**role が user であることは human の根拠にしない**。
 - hard scope（`messages` / `tools` / `all`）は reasoning・system・developer・compaction を
   常に除外する。soft filter（role / phase / 時刻）は context で越え得るが、hard scope は越えない
-  （[src/query/select.rs](../../src/query/select.rs), [src/query/filter.rs](../../src/query/filter.rs)）。
+  （[src/query/select.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/select.rs), [src/query/filter.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/filter.rs)）。
 - 本文が同じだけの別発言は削除しない。text 一致だけでの dedup は行わない。
 - **mirror は merge せず、物理行をすべて保持する**（最終決定）。API 表現と terminal 表現が
   同一発言を指す場合も、それぞれが自分の `source`（raw line / byte 範囲）と `event_id` を持ち、
   `mirror_of`（対応する origin id）と `mirror_relation` で関係を注記する。物理行を落とす merge は
   行わないため、`count` で pointer の代用をしない。
-  実装は [src/query/normalize.rs](../../src/query/normalize.rs) と
-  [src/query/output.rs](../../src/query/output.rs)。
+  実装は [src/query/normalize.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/normalize.rs) と
+  [src/query/output.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/src/query/output.rs)。
 
 ### 2.3 filter / context / OR 検索
 
@@ -130,7 +130,7 @@ F08 stdout 返却と診断分離 / F09 legacy 互換 / F10 形式未確定・不
 
 ## 5. 証拠
 
-合成 fixture による実バイナリ subprocess E2E（[tests/viewer_e2e.rs](../../tests/viewer_e2e.rs), [tests/viewer_integrity_e2e.rs](../../tests/viewer_integrity_e2e.rs)）。実会話・実 home は使わない。
+合成 fixture による実バイナリ subprocess E2E（[tests/viewer_e2e.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/tests/viewer_e2e.rs), [tests/viewer_integrity_e2e.rs](https://github.com/yuki-inaho/agent-jsonl-compact/blob/main/tests/viewer_integrity_e2e.rs)）。実会話・実 home は使わない。
 
 | 要件 | 主なテスト（`tests/viewer_e2e.rs`） |
 |---|---|
@@ -149,9 +149,9 @@ F08 stdout 返却と診断分離 / F09 legacy 互換 / F10 形式未確定・不
 再現:
 
 ```bash
-rtk proxy cargo test --test viewer_e2e
-rtk proxy cargo test --test viewer_integrity_e2e
-rtk proxy just check
+cargo test --test viewer_e2e
+cargo test --test viewer_integrity_e2e
+just check
 ```
 
 **状態の区別**: 上記テストは**この検証記録の時点で局所実行した**範囲を示す。

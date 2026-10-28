@@ -10,6 +10,14 @@ use crate::query::model::Provider;
 use serde::{Deserialize, Serialize};
 
 pub const CURSOR_VERSION: u64 = 1;
+pub const MAX_CURSOR_TOKEN_BYTES: usize = 64 * 1024;
+pub const MAX_CURSOR_QUERIES: usize = 64;
+pub const MAX_CURSOR_QUERY_BYTES: usize = 4_096;
+pub const MAX_CURSOR_SESSION_BYTES: usize = 512;
+pub const MAX_CURSOR_SOURCE_BYTES: usize = 1_024;
+pub const MAX_CURSOR_SUBEVENT_INDEX: u32 = 1_000_000;
+pub const MAX_CURSOR_ANCHOR_BYTES: u64 = 128;
+pub const MAX_CURSOR_CONTEXT: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -99,6 +107,35 @@ impl CursorProblem {
 }
 
 impl CursorPayload {
+    /// Reject impossible or oversized values before they can influence selection or evidence.
+    pub fn validate_shape(&self) -> Result<(), CursorProblem> {
+        if self.queries.len() > MAX_CURSOR_QUERIES
+            || self
+                .queries
+                .iter()
+                .any(|query| query.len() > MAX_CURSOR_QUERY_BYTES)
+            || self
+                .event_filter
+                .as_deref()
+                .is_some_and(|value| value.len() > MAX_CURSOR_QUERY_BYTES)
+            || self.session_id.len() > MAX_CURSOR_SESSION_BYTES
+            || self.source_id.len() > MAX_CURSOR_SOURCE_BYTES
+            || self.command.len() > 32
+            || self.anchor_hex.len() > 64
+            || self.resume_anchor_hex.len() > 64
+            || self.anchor_len > MAX_CURSOR_ANCHOR_BYTES
+            || self.context > MAX_CURSOR_CONTEXT
+            || self.subevent_index > MAX_CURSOR_SUBEVENT_INDEX
+            || self.offset > self.snapshot_end
+            || self.raw_line > self.snapshot_end.saturating_add(1)
+            || self.complete_line_count > self.snapshot_end.saturating_add(1)
+            || self.filters.fingerprint_bytes(self.event_filter.as_deref()) > 2_048
+        {
+            return Err(CursorProblem::Malformed);
+        }
+        Ok(())
+    }
+
     pub fn encode(&self) -> String {
         let json = serde_json::to_string(self).unwrap_or_default();
         format!("c{}:{}", self.v, base64url_encode(json.as_bytes()))
@@ -106,6 +143,9 @@ impl CursorPayload {
 
     pub fn decode(token: &str) -> Result<Self, CursorProblem> {
         let token = token.trim();
+        if token.len() > MAX_CURSOR_TOKEN_BYTES {
+            return Err(CursorProblem::Malformed);
+        }
         let Some(rest) = token.strip_prefix("c") else {
             return Err(CursorProblem::Malformed);
         };
@@ -122,6 +162,7 @@ impl CursorPayload {
         if payload.v != CURSOR_VERSION {
             return Err(CursorProblem::UnsupportedVersion);
         }
+        payload.validate_shape()?;
         Ok(payload)
     }
 

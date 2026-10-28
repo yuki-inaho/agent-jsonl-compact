@@ -49,6 +49,7 @@ const CLAUDE_KINDS: &[&str] = &[
     "thinking",
     "tool_call",
     "tool_output",
+    "injected",
     "compacted",
     "parse_error",
 ];

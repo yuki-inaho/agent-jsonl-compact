@@ -107,7 +107,10 @@ binary_count=0
 while IFS= read -r entry; do
   case "$entry" in
     "$member") binary_count=$((binary_count + 1)) ;;
-    "${BIN}-${TARGET}/" | "${BIN}-${TARGET}/README.md" | "${BIN}-${TARGET}/README.en.md" | "${BIN}-${TARGET}/LICENSE") : ;;
+    "${BIN}-${TARGET}/" | "${BIN}-${TARGET}/README.md" | "${BIN}-${TARGET}/README.en.md" | \
+      "${BIN}-${TARGET}/SECURITY.md" | "${BIN}-${TARGET}/SECURITY.en.md" | \
+      "${BIN}-${TARGET}/CHANGELOG.md" | "${BIN}-${TARGET}/CHANGELOG.ja.md" | \
+      "${BIN}-${TARGET}/LICENSE" | "${BIN}-${TARGET}/docs/"*) : ;;
     *) err "unexpected archive entry" ;;
   esac
 done <<< "$listing"

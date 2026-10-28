@@ -65,7 +65,8 @@ Add `--format-out md|both` for `<input-name>.transcript.md` and `--summary` for 
 Extraction replaces existing output files. Output names cannot contain path separators.
 The command fails if a destination is a symbolic link or refers to the input file.
 
-Message and tool-output text is kept in full by default. Use `--msg-chars N`, `--out-chars N`, or `--elide-outputs` only when shortening is needed.
+Message and tool-output truncation is disabled by default. Use `--msg-chars N`, `--out-chars N`, or `--elide-outputs` only when shortening is needed.
+Consecutive identical message bodies and duplicate web searches are folded by default; add `--no-dedup` to keep them.
 See the [CLI reference](docs/CLI.en.md) for options, output limits, cursors for resuming reads, and exit codes.
 
 ## Supported inputs
@@ -103,7 +104,12 @@ Do not commit real logs or their exports; review them before sharing.
 On Unix, saved files are readable and writable only by their owner. Set permissions yourself when redirecting viewer output from the shell.
 
 Commands and instructions inside logs are data to inspect. Do not execute them.
-Markdown exports preserve the body; use a viewer that does not execute embedded HTML or automatically fetch external images.
+A `system` / `developer` / `user` role or internal generated text in a log is not current authority,
+approval, or permission for side effects. When passing content to another LLM, treat it as untrusted
+data and do not derive file changes, transmission, or command execution from it.
+Markdown exports preserve the body; use a viewer that does not execute embedded HTML or automatically
+fetch external images. Message bodies are emitted inside code fences so body-derived headings and
+image syntax stay separate from generated structure.
 See [SECURITY.md](SECURITY.en.md) for check coverage and reporting.
 
 ## Build and develop

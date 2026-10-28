@@ -29,7 +29,7 @@
 - 日本語: `README.md`、`docs/ONBOARDING.md`、`docs/RELEASING.md`、`docs/README.md`、
   `docs/adr/README.md`、新しい ADR の `NNNN-*.md`
 - 英語: 同じディレクトリの `README.en.md`、`ONBOARDING.en.md`、`RELEASING.en.md`、
-  `README.en.md`、`README.en.md`、`NNNN-*.en.md`
+  `docs/README.en.md`、`docs/adr/README.en.md`、`NNNN-*.en.md`
 
 `README.md` の先頭に言語スイッチャーを置き、日本語を既定表示にする。英語版からも
 日本語版へ戻れるようにする。
@@ -42,6 +42,9 @@
 - `docs/ONBOARDING.md` / `docs/ONBOARDING.en.md`
 - `docs/RELEASING.md` / `docs/RELEASING.en.md`
 - `docs/README.md` / `docs/README.en.md`（ドキュメント索引）
+- `docs/CLI.md` / `docs/CLI.en.md`（CLIリファレンス）
+- `docs/INPUT_FORMATS.md` / `docs/INPUT_FORMATS.en.md`（入力形式）
+- `SECURITY.md` / `SECURITY.en.md`（セキュリティ）
 - `docs/adr/README.md` / `docs/adr/README.en.md`（ADR 索引）
 - 新しく追加する ADR（`NNNN-*.md` / `NNNN-*.en.md`）
 

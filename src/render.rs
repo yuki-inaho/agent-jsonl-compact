@@ -1,4 +1,5 @@
 use crate::cli::SessionFormat;
+use crate::query::output::escape_controls_singleline;
 use crate::util::{json_text, Event};
 use serde_json::{Map, Value};
 
@@ -25,43 +26,46 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
             "session" => {
                 let mut line = format!(
                     "> **session** `{}` cwd=`{}` cli={} originator={}",
-                    display_field(event, "id"),
-                    display_field(event, "cwd"),
-                    display_field(event, "cli_version"),
-                    display_field(event, "originator"),
+                    display_line(event, "id"),
+                    display_line(event, "cwd"),
+                    display_line(event, "cli_version"),
+                    display_line(event, "originator"),
                 );
                 if let Some(branch) = str_field(event, "git_branch") {
                     if !branch.is_empty() {
-                        line.push_str(&format!(" branch={branch}"));
+                        line.push_str(&format!(" branch={}", escape_controls_singleline(&branch)));
                     }
                 }
                 if let Some(forked_from) = str_field(event, "forked_from_id") {
                     if !forked_from.is_empty() {
-                        line.push_str(&format!(" forked_from={forked_from}"));
+                        line.push_str(&format!(
+                            " forked_from={}",
+                            escape_controls_singleline(&forked_from)
+                        ));
                     }
                 }
                 lines.push(line);
             }
             "goal" => lines.push(format!(
                 "\n## 🎯 GOAL [{}]\n{}\n",
-                display_field(event, "status"),
-                display_field(event, "objective")
+                display_line(event, "status"),
+                fence(&display_body(event, "objective"), "text")
             )),
             "turn_start" => lines.push(format!("\n--- turn start ({ts}) ---")),
             "turn_end" => {
                 let reason = str_field(event, "reason")
                     .filter(|value| !value.is_empty())
-                    .map(|value| format!(" reason={value}"))
+                    .map(|value| format!(" reason={}", escape_controls_singleline(&value)))
                     .unwrap_or_default();
                 let cost = str_field(event, "cost")
                     .filter(|value| !value.is_empty())
-                    .map(|value| format!(" cost={value}"))
+                    .map(|value| format!(" cost={}", escape_controls_singleline(&value)))
                     .unwrap_or_default();
                 lines.push(format!("--- turn end ({ts}){reason}{cost} ---"));
             }
             "turn_aborted" => lines.push(format!(
                 "\n--- turn aborted: {} ---",
-                display_field(event, "reason")
+                display_line(event, "reason")
             )),
             "user" | "assistant" | "api_user" | "api_assistant" | "api_developer" => {
                 let role = match kind.as_deref().unwrap_or("") {
@@ -74,25 +78,34 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                 };
                 let phase = str_field(event, "phase")
                     .filter(|value| !value.is_empty())
-                    .map(|value| format!(" [{value}]"))
+                    .map(|value| format!(" [{}]", escape_controls_singleline(&value)))
                     .unwrap_or_default();
                 lines.push(format!(
                     "\n### {role}{phase}{sub} ({ts})\n{}\n",
-                    display_field(event, "text")
+                    fence(&display_body(event, "text"), "text")
+                ));
+            }
+            "injected" => {
+                lines.push(format!(
+                    "\n### 🛠 FRAMEWORK(meta){sub} ({ts})\n{}\n",
+                    fence(&display_body(event, "text"), "text")
                 ));
             }
             "thinking" => {
-                let body = display_field(event, "text");
+                let body = display_body(event, "text");
                 if body.is_empty() {
                     lines.push("\n*🧠 thinking: [empty]*".to_string());
                 } else {
-                    lines.push(format!("\n*🧠 thinking{sub}:* {body}"));
+                    lines.push(format!("\n*🧠 thinking{sub}:*\n{}", fence(&body, "text")));
                 }
             }
             "reasoning" => {
-                let body = display_field(event, "text");
+                let body = display_body(event, "text");
                 if !body.is_empty() {
-                    lines.push(format!("\n*🧠 reasoning(summary):* {body}"));
+                    lines.push(format!(
+                        "\n*🧠 reasoning(summary):*\n{}",
+                        fence(&body, "text")
+                    ));
                 } else if event
                     .get("encrypted")
                     .and_then(Value::as_bool)
@@ -112,14 +125,15 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                         .get("args")
                         .map(json_text)
                         .map(|value| value.chars().take(300).collect::<String>())
+                        .map(|value| escape_controls_singleline(&value))
                         .unwrap_or_default();
                     lines.push(format!(
                         "\n🔧 **{}**{sub} {args}",
-                        display_field(event, "tool")
+                        display_line(event, "tool")
                     ));
                 }
             }
-            "tool_output" => lines.push(fence(&display_field(event, "output"), "")),
+            "tool_output" => lines.push(fence(&display_body(event, "output"), "")),
             "patch" => {
                 let ok = if event
                     .get("success")
@@ -132,17 +146,17 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                 };
                 lines.push(format!(
                     "\n📝 patch {ok}\n{}",
-                    fence(display_field(event, "stdout").trim(), "")
+                    fence(display_body(event, "stdout").trim(), "")
                 ));
             }
             "web_search" => lines.push(format!(
                 "\n🔎 web_search: `{}`",
-                display_field(event, "query")
+                display_line(event, "query")
             )),
             "mcp_tool" => lines.push(format!(
                 "\n🧩 mcp: {}/{}",
-                display_field(event, "server"),
-                display_field(event, "tool")
+                display_line(event, "server"),
+                display_line(event, "tool")
             )),
             "compacted" | "context_compacted" => {
                 let replacement = event
@@ -155,16 +169,16 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
             }
             "thread_rolled_back" => lines.push(format!(
                 "\n— rolled back {} turn(s) —",
-                display_field(event, "num_turns")
+                display_line(event, "num_turns")
             )),
             "item_completed" => lines.push(format!(
                 "\n📦 item_completed: {}",
-                display_field(event, "item_type")
+                display_line(event, "item_type")
             )),
             "token_count" => lines.push("· token_count".to_string()),
             "error" => lines.push(format!(
                 "\n❌ **error** ({ts})\n{}",
-                display_field(event, "text")
+                fence(&display_body(event, "text"), "text")
             )),
             other => {
                 let mut extra = Map::new();
@@ -173,11 +187,16 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
                         extra.insert(key.clone(), value.clone());
                     }
                 }
-                let extra_text = json_text(&Value::Object(extra))
-                    .chars()
-                    .take(200)
-                    .collect::<String>();
-                lines.push(format!("\n• {other}: {extra_text}"));
+                let extra_text = escape_controls_singleline(
+                    &json_text(&Value::Object(extra))
+                        .chars()
+                        .take(200)
+                        .collect::<String>(),
+                );
+                lines.push(format!(
+                    "\n• {}: {extra_text}",
+                    escape_controls_singleline(other)
+                ));
             }
         }
     }
@@ -186,6 +205,7 @@ pub fn render_markdown(events: &[Event], format: SessionFormat) -> String {
 }
 
 pub fn fence(body: &str, lang: &str) -> String {
+    let body = crate::query::output::escape_controls(body);
     let mut longest = 0usize;
     let mut current = 0usize;
     for ch in body.chars() {
@@ -202,7 +222,7 @@ pub fn fence(body: &str, lang: &str) -> String {
 
 fn hhmmss(value: Option<&Value>) -> String {
     match value {
-        Some(Value::String(ts)) => ts.get(11..19).unwrap_or("").to_string(),
+        Some(Value::String(ts)) => escape_controls_singleline(ts.get(11..19).unwrap_or("")),
         Some(Value::Number(ts)) => ts
             .as_u64()
             .map(|millis| {
@@ -229,7 +249,11 @@ fn str_field(event: &Event, key: &str) -> Option<String> {
     }
 }
 
-fn display_field(event: &Event, key: &str) -> String {
+fn display_line(event: &Event, key: &str) -> String {
+    escape_controls_singleline(&str_field(event, key).unwrap_or_default())
+}
+
+fn display_body(event: &Event, key: &str) -> String {
     str_field(event, key).unwrap_or_default()
 }
 
