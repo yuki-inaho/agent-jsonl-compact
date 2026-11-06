@@ -18,6 +18,8 @@ pub const MAX_CURSOR_SOURCE_BYTES: usize = 1_024;
 pub const MAX_CURSOR_SUBEVENT_INDEX: u32 = 1_000_000;
 pub const MAX_CURSOR_ANCHOR_BYTES: u64 = 128;
 pub const MAX_CURSOR_CONTEXT: usize = 10_000;
+pub const MAX_CURSOR_INPUT_KIND_BYTES: usize = 32;
+pub const MAX_CURSOR_FILE_SHA256_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,6 +75,12 @@ pub struct CursorPayload {
     /// conservative concurrent-write signal, never as file identity.
     #[serde(default)]
     pub mtime_ns: u64,
+    /// Container kind: empty/`jsonl` for physical lines, `opencode_export` for a fixed v2 export.
+    #[serde(default)]
+    pub input_kind: String,
+    /// Whole-file SHA-256 for fixed JSON exports. Empty for JSONL cursors.
+    #[serde(default)]
+    pub file_sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +133,14 @@ impl CursorPayload {
             || self.resume_anchor_hex.len() > 64
             || self.anchor_len > MAX_CURSOR_ANCHOR_BYTES
             || self.context > MAX_CURSOR_CONTEXT
+            || self.input_kind.len() > MAX_CURSOR_INPUT_KIND_BYTES
+            || self.file_sha256.len() > MAX_CURSOR_FILE_SHA256_BYTES
+            || (!self.file_sha256.is_empty()
+                && (self.file_sha256.len() != 64
+                    || !self
+                        .file_sha256
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit())))
             || self.subevent_index > MAX_CURSOR_SUBEVENT_INDEX
             || self.offset > self.snapshot_end
             || self.raw_line > self.snapshot_end.saturating_add(1)
@@ -237,6 +253,8 @@ mod tests {
             resume_anchor_hex: sha256_hex(b"resume"),
             anchor_len: 6,
             mtime_ns: 1,
+            input_kind: String::new(),
+            file_sha256: String::new(),
         }
     }
 

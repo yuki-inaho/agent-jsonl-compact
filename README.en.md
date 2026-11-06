@@ -76,9 +76,13 @@ See the [CLI reference](docs/CLI.en.md) for options, output limits, cursors for 
 |---|---|
 | Codex CLI | Rollout JSONL under `~/.codex/sessions/` |
 | Claude Code | Transcript JSONL under `~/.claude/projects/` |
-| OpenCode | Captured stdout NDJSON from `opencode run --format json` |
+| OpenCode | Captured stdout NDJSON from `opencode run --format json`, or the single JSON from `opencode session export <session-id>` |
 
-OpenCode databases and the single JSON document from `opencode export` are not supported inputs.
+OpenCode databases and automatic discovery of export files by `sessions` are not supported.
+A v2 export JSON can be read with `view -i FILE` / `search -i FILE`. The whole document is capped at
+128 MiB; an element above `--max-record-bytes` is reported as `uninspected` (partial result). Because
+the file is fixed, no append cursor is issued and page cursors bind to the whole-file SHA-256. Legacy
+extraction (`-o` with `-i`) still accepts only the three JSONL formats; v2 exports are viewer-only.
 Formats are detected automatically. Override with `--format codex|claude_code|opencode` when needed.
 Exported `*.clean.jsonl` is not an input format for the viewer commands.
 See [input formats](docs/INPUT_FORMATS.en.md) for sources and limitations.

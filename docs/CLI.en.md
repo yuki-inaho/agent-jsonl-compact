@@ -89,8 +89,16 @@ agent-jsonl-compact view -i /path/rollout.jsonl \
 
 # re-read one event (display limits and text_complete are preserved)
 agent-jsonl-compact view -i /path/rollout.jsonl --event EVENT_ID --output jsonl
+
+# saved OpenCode v2 export (view/search only)
+agent-jsonl-compact view -i /path/export.json --format opencode --output jsonl
+agent-jsonl-compact search -i /path/export.json --query keyword --scope tools --with-pair
 ```
 
+- A single JSON produced by `opencode session export <session-id>` is also readable by `view` / `search`.
+  The whole document is capped at 128 MiB; `--max-record-bytes` applies to each `messages[*]` element.
+  Because the file is fixed, no append cursor is issued and page cursors bind to the whole-file SHA-256.
+  Automatic `sessions` discovery and legacy `-o` extraction are out of scope. Desktop output was not measured.
 - The default scope is `messages`. `--scope tools` selects tools; even `--scope all`
   never exposes private reasoning, system, developer, or compaction content.
 - `view` displays 50 events by default; `search` returns 20 hits by default.
@@ -146,14 +154,15 @@ agent-jsonl-compact search -i /path/rollout.jsonl --query 'timeout|retry' --rege
 
 ### 4. Locate events in the source log
 
-Each JSONL event line includes fields for locating the original log entry:
+Each JSONL event line includes fields for locating the original log entry. For an OpenCode v2
+export, positions refer to the original export JSON, never to a converted file.
 
 | field | meaning |
 |---|---|
 | `event_id` | stable ID built from file identity, the original start position, and the event's position within its source line |
-| `source.raw_line` | raw line number (1-based) |
-| `source.byte_start` / `byte_end` | raw byte range (0-based, end exclusive) |
-| `source.subevent_index` | index when one raw line expands to multiple events |
+| `source.raw_line` | raw line number (1-based); for a v2 export, the start line of the `messages[*]` element |
+| `source.byte_start` / `byte_end` | raw byte range (0-based, end exclusive); for a v2 export, the element without comma/whitespace |
+| `source.subevent_index` | index when one raw line (or one v2 element) expands to multiple events |
 | `text_complete` | whether the displayed text is complete |
 | `message_origin` | `human` / `framework` / `compaction` / `unknown`. A user role is not necessarily human |
 
@@ -176,6 +185,11 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | purpose | continue the same snapshot | appends after the previous complete line end |
 | issued when | primary events remain undisplayed | every line was scanned with no uninspected records |
 | caution | append cursor is not issued mid-page | never advances past an uninspected record |
+
+An OpenCode v2 export is a fixed JSON document, so no append cursor is issued. Its page cursor
+validates the whole-file SHA-256, length, element start, `raw_line`, and subevent, and rejects
+replacement, truncation, same-length rewrites, and re-exports with `cursor_invalid`. Resuming
+re-reads the whole document.
 
 - A cursor preserves the filters, query, scope, and search `--context` from the original request.
   On resume, omitted options use the cursor's values. You may also specify the same values.
@@ -216,7 +230,9 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 - Lines larger than `--max-record-bytes` (default 1 MiB) are returned as `uninspected`
   with only their source range, `status: partial`, exit code 1, and no `append_cursor`. Use
   `counts.uninspected.samples[].retry_cursor` in metadata to re-read from the same
-  position with a larger limit.
+  position with a larger limit. For an OpenCode v2 export, each `messages[*]` element is the
+  unit. A whole document above 128 MiB is `export_too_large`; malformed JSON or an invalid
+  `info` / `messages` shape is `format_invalid` (both exit code 1).
 - Input line and display limits are separate. Shortened display text sets
   `text_complete: false` without making the result `partial`.
 

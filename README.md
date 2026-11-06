@@ -76,9 +76,13 @@ agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 |---|---|
 | Codex CLI | `~/.codex/sessions/` 以下のrollout JSONL |
 | Claude Code | `~/.claude/projects/` 以下のtranscript JSONL |
-| OpenCode | `opencode run --format json` のstdoutを保存したNDJSON |
+| OpenCode | `opencode run --format json` のstdoutを保存したNDJSON、または `opencode session export <session-id>` の単一JSON |
 
-OpenCodeのデータベースと、`opencode export` が出力する単一のJSON文書には対応していません。
+OpenCodeのデータベースと、`sessions` によるexportファイルの自動探索には対応していません。
+v2 exportの単一JSONは `view -i FILE` / `search -i FILE` で閲覧できます。ファイル全体の上限は128 MiBで、
+要素が `--max-record-bytes` を超えると `uninspected` として部分結果になります。固定ファイルのため
+append cursorは発行せず、page cursorはファイル全体のSHA-256に結び付きます。`-i` の旧抽出（`-o`）は
+従来の3形式JSONLのみを対象とし、v2 exportは閲覧専用です。
 形式は自動判定します。必要なら `--format codex|claude_code|opencode` を明示してください。
 抽出済みの `*.clean.jsonl` は閲覧CLIの入力対象ではありません。
 形式ごとの根拠と制約は [入力形式](docs/INPUT_FORMATS.md) を参照してください。

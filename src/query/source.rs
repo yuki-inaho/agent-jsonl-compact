@@ -76,6 +76,32 @@ pub fn discover_session_id_counted(
     max_record_bytes: u64,
     snapshot_end: u64,
 ) -> Result<(Option<String>, u64)> {
+    discover_session_id_counted_flavored(
+        path,
+        provider,
+        crate::query::model::RecordFlavor::Jsonl,
+        max_record_bytes,
+        snapshot_end,
+    )
+}
+
+/// Flavor-aware variant. The v2 export stores the session identity once in `info.id`; message
+/// elements do not repeat it.
+pub fn discover_session_id_counted_flavored(
+    path: &Path,
+    provider: crate::query::model::Provider,
+    flavor: crate::query::model::RecordFlavor,
+    max_record_bytes: u64,
+    snapshot_end: u64,
+) -> Result<(Option<String>, u64)> {
+    if flavor == crate::query::model::RecordFlavor::OpenCodeExport {
+        let doc = crate::query::export_v2::ExportDoc::open(path)
+            .with_context(|| format!("failed to open {}", path.display()))?;
+        if doc.len() > snapshot_end {
+            anyhow::bail!("export exceeds the frozen snapshot boundary");
+        }
+        return Ok((doc.session_id.clone(), doc.len()));
+    }
     let mut reader = crate::query::reader::SourceReader::open(path, max_record_bytes)
         .with_context(|| format!("failed to open {}", path.display()))?;
     reader.constrain_snapshot(snapshot_end);

@@ -4,9 +4,10 @@
 //! are never used, and a call is only paired with a result (never with another call or another
 //! result). Two additional streaming passes are bounded by the frozen snapshot.
 
-use crate::query::model::{Kind, Provider, QEvent};
+use crate::query::model::{Kind, Provider, QEvent, RecordFlavor};
 use crate::query::normalize::Normalizer;
-use crate::query::reader::{LineItem, RecordSpan, SourceReader};
+use crate::query::reader::{LineItem, RecordSpan};
+use crate::query::records::RecordReader;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -107,9 +108,13 @@ fn scan_tool_events(
     span: RecordSpan,
     bytes: &[u8],
     source_id: &str,
+    flavor: RecordFlavor,
 ) -> Vec<QEvent> {
-    normalizer
-        .normalize(span, bytes, source_id)
+    let events = match flavor {
+        RecordFlavor::Jsonl => normalizer.normalize(span, bytes, source_id),
+        RecordFlavor::OpenCodeExport => normalizer.normalize_export(span, bytes, source_id),
+    };
+    events
         .into_iter()
         .filter(|event| event.kind.is_tool())
         .collect()
@@ -120,6 +125,7 @@ fn scan_tool_events(
 pub fn correlate(
     reader_path: &std::path::Path,
     provider: Provider,
+    flavor: RecordFlavor,
     session_id: &str,
     source_id: &str,
     selected: &[QEvent],
@@ -155,7 +161,7 @@ pub fn correlate(
     let mut results: BTreeMap<PairKey, u64> = BTreeMap::new();
     let mut reentry: BTreeMap<PairKey, (u64, u64)> = BTreeMap::new();
     {
-        let mut pass = SourceReader::open(reader_path, max_record_bytes)?;
+        let mut pass = RecordReader::open(reader_path, max_record_bytes, flavor)?;
         pass.constrain_snapshot(snapshot_end);
         let mut normalizer = Normalizer::new(context.provider, context.session_id.to_string());
         let result = pass.scan_from(start_from, |item| {
@@ -182,7 +188,9 @@ pub fn correlate(
                             .push((span.raw_line, span.byte_start, span.byte_end));
                     }
                 }
-                for event in scan_tool_events(&mut normalizer, span, &bytes, context.source_id) {
+                for event in
+                    scan_tool_events(&mut normalizer, span, &bytes, context.source_id, flavor)
+                {
                     let Some(call_id) = event.call_id.clone() else {
                         continue;
                     };
@@ -302,12 +310,14 @@ pub fn correlate(
     if !target_to_selected.is_empty() {
         let mut rendered = 0usize;
         let cap = max_events.max(1);
-        let mut pass = SourceReader::open(reader_path, max_record_bytes)?;
+        let mut pass = RecordReader::open(reader_path, max_record_bytes, flavor)?;
         pass.constrain_snapshot(snapshot_end);
         let mut normalizer = Normalizer::new(context.provider, context.session_id.to_string());
         let result = pass.scan_from(start_from, |item| {
             if let LineItem::Line { span, bytes } = item {
-                for event in scan_tool_events(&mut normalizer, span, &bytes, context.source_id) {
+                for event in
+                    scan_tool_events(&mut normalizer, span, &bytes, context.source_id, flavor)
+                {
                     let Some(selected_ids) = target_to_selected.remove(&event.event_id) else {
                         continue;
                     };
@@ -360,6 +370,7 @@ pub fn correlate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query::reader::SourceReader;
     use std::io::Write;
 
     fn write_lines(path: &std::path::Path, lines: &[&str]) {
@@ -405,7 +416,9 @@ mod tests {
                     if span.byte_start >= snapshot_end {
                         return Ok(false);
                     }
-                    for event in scan_tool_events(&mut normalizer, span, &bytes, "src") {
+                    for event in
+                        scan_tool_events(&mut normalizer, span, &bytes, "src", RecordFlavor::Jsonl)
+                    {
                         if event.call_id.as_deref() == Some("c1") && event.kind == Kind::ToolCall {
                             selected.push(event);
                         }
@@ -418,6 +431,7 @@ mod tests {
         let report = correlate(
             &path,
             Provider::Codex,
+            RecordFlavor::Jsonl,
             "S",
             "src",
             &selected,
@@ -459,7 +473,9 @@ mod tests {
         reader
             .scan_from(0, |item| {
                 if let LineItem::Line { span, bytes } = item {
-                    for event in scan_tool_events(&mut normalizer, span, &bytes, "src") {
+                    for event in
+                        scan_tool_events(&mut normalizer, span, &bytes, "src", RecordFlavor::Jsonl)
+                    {
                         if event.call_id.as_deref() == Some("c1") && event.kind == Kind::ToolCall {
                             selected.push(event);
                         }
@@ -471,6 +487,7 @@ mod tests {
         let report = correlate(
             &path,
             Provider::Codex,
+            RecordFlavor::Jsonl,
             "S",
             "src",
             &selected,
@@ -505,7 +522,9 @@ mod tests {
         reader
             .scan_from(0, |item| {
                 if let LineItem::Line { span, bytes } = item {
-                    for event in scan_tool_events(&mut normalizer, span, &bytes, "src") {
+                    for event in
+                        scan_tool_events(&mut normalizer, span, &bytes, "src", RecordFlavor::Jsonl)
+                    {
                         if event.call_id.as_deref() == Some("dup") && event.kind == Kind::ToolCall {
                             selected.push(event);
                         }
@@ -517,6 +536,7 @@ mod tests {
         let report = correlate(
             &path,
             Provider::Codex,
+            RecordFlavor::Jsonl,
             "S",
             "src",
             &selected,
