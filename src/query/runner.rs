@@ -17,8 +17,11 @@ use crate::query::cursor::{
     MAX_CURSOR_TOKEN_BYTES,
 };
 use crate::query::detect::{detect_with, Detection};
+use crate::query::export_v2::{probe, ExportDoc, Probe};
 use crate::query::filter::{parse_roles, Filters, Scope};
-use crate::query::model::{parse_rfc3339_ms, Kind, Provider, Role, QUERY_SCHEMA_VERSION};
+use crate::query::model::{
+    parse_rfc3339_ms, Kind, Provider, RecordFlavor, Role, QUERY_SCHEMA_VERSION,
+};
 use crate::query::normalize::Normalizer;
 use crate::query::output::{
     attach_observed, cut_utf8, escape_controls, escape_controls_singleline, event_to_json,
@@ -27,6 +30,7 @@ use crate::query::output::{
 use crate::query::reader::{
     LineItem, RecordSpan, SourceReader, ANCHOR_WINDOW_BYTES, DEFAULT_MAX_RECORD_BYTES,
 };
+use crate::query::records::RecordReader;
 use crate::query::select::{in_scope, MatchInfo, Mode, SelectOptions, Selector};
 use crate::query::source::file_source_id;
 use crate::query::toolpair::{correlate, PairState};
@@ -565,7 +569,8 @@ fn run_query(
     let mut aux_anchor_bytes: u64 = 0;
     let mut aux_validation_bytes: u64 = 0;
 
-    let (provider, session_id, filters) = if let (Some(kind), Some(token)) = (expected_kind, token)
+    let (provider, flavor, session_id, filters) = if let (Some(kind), Some(token)) =
+        (expected_kind, token)
     {
         let payload = match CursorPayload::decode(&token) {
             Ok(payload) => payload,
@@ -652,11 +657,13 @@ fn run_query(
             }
         }
         let filters = payload.filters.clone();
+        let flavor = RecordFlavor::from_cursor(&payload.input_kind);
         // Discovery is evidence, not an optional convenience: an I/O failure must not be
         // unwrapped into "no session id" and then silently trusted.
-        let (discovered, bytes) = match crate::query::source::discover_session_id_counted(
+        let (discovered, bytes) = match crate::query::source::discover_session_id_counted_flavored(
             &input,
             payload.provider,
+            flavor,
             shared.max_record_bytes,
             effective_snapshot_end,
         ) {
@@ -712,7 +719,7 @@ fn run_query(
         }
         expected_kind = None;
         resume = Some(payload.clone());
-        (payload.provider, session, filters)
+        (payload.provider, flavor, session, filters)
     } else {
         let provider = match shared.format {
             SessionFormat::Codex => Provider::Codex,
@@ -728,51 +735,66 @@ fn run_query(
                 aux_detect_bytes = reader.read_stream_bytes();
                 match detection {
                     Ok(Detection::Recognized(provider)) => provider,
-                    Ok(Detection::Uncertain) => {
-                        let mut unknown = 0u64;
-                        let mut unknown_samples: Vec<Value> = Vec::new();
-                        if let Ok(mut scan) = SourceReader::open(&input, shared.max_record_bytes) {
-                            scan.constrain_snapshot(effective_snapshot_end);
-                            let _ = scan.scan_from(0, |item| {
-                                if let LineItem::Line { span, bytes } = item {
-                                    let parsed = serde_json::from_slice::<Value>(&bytes);
-                                    let recognized = parsed
-                                        .as_ref()
-                                        .ok()
-                                        .and_then(crate::query::detect::classify_record)
-                                        .is_some();
-                                    if parsed.is_ok() && !recognized {
-                                        unknown += 1;
-                                        if unknown_samples.len() < 8 {
-                                            unknown_samples.push(json!({
-                                                "raw_line": span.raw_line,
-                                                "byte_start": span.byte_start,
-                                                "byte_end": span.byte_end,
-                                            }));
+                    Ok(Detection::Uncertain) => match probe(&input) {
+                        Ok(Probe::Candidate) => Provider::OpenCode,
+                        Ok(Probe::TooLarge) => {
+                            return failure(
+                                "export_too_large",
+                                &format!(
+                                    "OpenCode v2 export exceeds the {}-byte cap",
+                                    crate::query::export_v2::MAX_EXPORT_BYTES
+                                ),
+                            );
+                        }
+                        Ok(Probe::NotExport) => {
+                            let mut unknown = 0u64;
+                            let mut unknown_samples: Vec<Value> = Vec::new();
+                            if let Ok(mut scan) =
+                                SourceReader::open(&input, shared.max_record_bytes)
+                            {
+                                scan.constrain_snapshot(effective_snapshot_end);
+                                let _ = scan.scan_from(0, |item| {
+                                    if let LineItem::Line { span, bytes } = item {
+                                        let parsed = serde_json::from_slice::<Value>(&bytes);
+                                        let recognized = parsed
+                                            .as_ref()
+                                            .ok()
+                                            .and_then(crate::query::detect::classify_record)
+                                            .is_some();
+                                        if parsed.is_ok() && !recognized {
+                                            unknown += 1;
+                                            if unknown_samples.len() < 8 {
+                                                unknown_samples.push(json!({
+                                                    "raw_line": span.raw_line,
+                                                    "byte_start": span.byte_start,
+                                                    "byte_end": span.byte_end,
+                                                }));
+                                            }
                                         }
                                     }
-                                }
-                                Ok(true)
-                            });
+                                    Ok(true)
+                                });
+                            }
+                            let stdout = line(&json!({
+                                "schema_version": QUERY_SCHEMA_VERSION,
+                                "record_type": "metadata",
+                                "status": "error",
+                                "error": {
+                                    "type": "format_uncertain",
+                                    "reason": "no recognized provider evidence; pass --format codex|claude_code|opencode"
+                                },
+                                "counts": {"unknown": {"events": unknown, "samples": unknown_samples}},
+                                "exhausted": false,
+                            }));
+                            return Prepared {
+                                exit: Exit::Failure,
+                                stdout,
+                                stderr: "error: format_uncertain: pass --format explicitly\n"
+                                    .to_string(),
+                            };
                         }
-                        let stdout = line(&json!({
-                            "schema_version": QUERY_SCHEMA_VERSION,
-                            "record_type": "metadata",
-                            "status": "error",
-                            "error": {
-                                "type": "format_uncertain",
-                                "reason": "no recognized provider evidence; pass --format codex|claude_code|opencode"
-                            },
-                            "counts": {"unknown": {"events": unknown, "samples": unknown_samples}},
-                            "exhausted": false,
-                        }));
-                        return Prepared {
-                            exit: Exit::Failure,
-                            stdout,
-                            stderr: "error: format_uncertain: pass --format explicitly\n"
-                                .to_string(),
-                        };
-                    }
+                        Err(err) => return failure("source_unreadable", &err.to_string()),
+                    },
                     Ok(Detection::Conflicting) => {
                         return failure(
                             "format_inconsistent",
@@ -784,13 +806,40 @@ fn run_query(
             }
         };
         aux_detect_bytes += 0;
-        let (session_id, metadata_bytes) = crate::query::source::discover_session_id_counted(
-            &input,
-            provider,
-            shared.max_record_bytes,
-            effective_snapshot_end,
-        )
-        .unwrap_or((None, 0));
+        let flavor = match provider {
+            Provider::OpenCode => match probe(&input) {
+                Ok(Probe::Candidate) => RecordFlavor::OpenCodeExport,
+                Ok(Probe::NotExport) => RecordFlavor::Jsonl,
+                Ok(Probe::TooLarge) => {
+                    return failure(
+                        "export_too_large",
+                        &format!(
+                            "OpenCode v2 export exceeds the {}-byte cap",
+                            crate::query::export_v2::MAX_EXPORT_BYTES
+                        ),
+                    );
+                }
+                Err(err) => return failure("source_unreadable", &err.to_string()),
+            },
+            _ => RecordFlavor::Jsonl,
+        };
+        let (session_id, metadata_bytes) = if flavor == RecordFlavor::OpenCodeExport {
+            match ExportDoc::open(&input) {
+                Ok(doc) => (doc.session_id.clone(), doc.len()),
+                Err(err) => return failure("format_invalid", &err.to_string()),
+            }
+        } else {
+            match crate::query::source::discover_session_id_counted_flavored(
+                &input,
+                provider,
+                flavor,
+                shared.max_record_bytes,
+                effective_snapshot_end,
+            ) {
+                Ok(result) => result,
+                Err(err) => return failure("source_unreadable", &err.to_string()),
+            }
+        };
         aux_metadata_bytes += metadata_bytes;
         let session = session_id.unwrap_or_else(|| source_id.clone());
         let filters = Filters {
@@ -801,7 +850,7 @@ fn run_query(
             until_ms: shared.until_ms,
             provider: Some(provider),
         };
-        (provider, session, filters)
+        (provider, flavor, session, filters)
     };
     let _ = expected_kind;
 
@@ -846,9 +895,18 @@ fn run_query(
     });
     let mut normalizer = Normalizer::new(provider, session_id.clone());
     let search_started = Instant::now();
-    let mut reader = match SourceReader::open(&input, shared.max_record_bytes) {
+    let mut reader = match RecordReader::open(&input, shared.max_record_bytes, flavor) {
         Ok(reader) => reader,
-        Err(err) => return failure("source_unreadable", &err.to_string()),
+        Err(err) => {
+            return failure(
+                if flavor == RecordFlavor::OpenCodeExport {
+                    "format_invalid"
+                } else {
+                    "source_unreadable"
+                },
+                &err.to_string(),
+            )
+        }
     };
     reader.constrain_snapshot(effective_snapshot_end);
     let mut stats = ScanStats::default();
@@ -865,9 +923,16 @@ fn run_query(
                 line_counter = line_counter.saturating_add(1);
                 last_line = line_counter;
                 let mut adjusted = span;
-                adjusted.raw_line = line_counter;
-                let mut events = normalizer.normalize(adjusted, &bytes, &source_id);
-                if inherited_line_numbers {
+                if flavor == RecordFlavor::Jsonl {
+                    adjusted.raw_line = line_counter;
+                }
+                let mut events = match flavor {
+                    RecordFlavor::Jsonl => normalizer.normalize(adjusted, &bytes, &source_id),
+                    RecordFlavor::OpenCodeExport => {
+                        normalizer.normalize_export(adjusted, &bytes, &source_id)
+                    }
+                };
+                if inherited_line_numbers && flavor == RecordFlavor::Jsonl {
                     for event in &mut events {
                         event.raw_line_verified = false;
                     }
@@ -978,7 +1043,9 @@ fn run_query(
                 line_counter = line_counter.saturating_add(1);
                 last_line = line_counter;
                 let mut adjusted = span;
-                adjusted.raw_line = line_counter;
+                if flavor == RecordFlavor::Jsonl {
+                    adjusted.raw_line = line_counter;
+                }
                 // No explicit skip in 0.3: an over-limit record is always reported as
                 // `uninspected` and makes the response partial (rc1) without an append cursor.
                 stats.uninspected.push(adjusted);
@@ -1063,6 +1130,7 @@ fn run_query(
         match correlate(
             &input,
             provider,
+            flavor,
             &session_id,
             &source_id,
             &events,
@@ -1121,7 +1189,7 @@ fn run_query(
     // Append-cursor eligibility: a complete scan from the start of this invocation's suffix.
     // A page that finishes the old snapshot may issue the append cursor; `render` still
     // withholds it whenever a page continuation remains.
-    let append_allowed = scan_complete && stats.invalid == 0;
+    let append_allowed = flavor == RecordFlavor::Jsonl && scan_complete && stats.invalid == 0;
     // Use the reader's boundary: a page sequence holds the old snapshot even if the file grew,
     // so the append checkpoint must be that old complete-line end, not the current file length.
     let complete_end = stats
@@ -1150,10 +1218,13 @@ fn run_query(
     }
     // Capture before the stats value is moved into render.
     let append_ok_final = append_allowed && !stats.source_changed;
+    let file_sha256 = reader.file_sha256().unwrap_or_default();
     render(
         &shared,
         kind,
         provider,
+        flavor,
+        &file_sha256,
         &source_id,
         &session_id,
         snapshot_end,
@@ -1219,6 +1290,8 @@ fn render(
     shared: &Shared,
     _kind: QueryKind,
     provider: Provider,
+    flavor: RecordFlavor,
+    file_sha256: &str,
     source_id: &str,
     session_id: &str,
     snapshot_end: u64,
@@ -1413,6 +1486,16 @@ fn render(
             .unwrap_or_default(),
             anchor_len: ANCHOR_WINDOW_BYTES.min(snapshot_end as usize) as u64,
             mtime_ns: file_mtime_ns(input).unwrap_or(0),
+            input_kind: if flavor == RecordFlavor::OpenCodeExport {
+                flavor.as_str().to_string()
+            } else {
+                String::new()
+            },
+            file_sha256: if flavor == RecordFlavor::OpenCodeExport {
+                file_sha256.to_string()
+            } else {
+                String::new()
+            },
         }
         .encode()
     });
@@ -1453,6 +1536,8 @@ fn render(
                 .unwrap_or_default(),
                 anchor_len: ANCHOR_WINDOW_BYTES.min(complete_end as usize) as u64,
                 mtime_ns: file_mtime_ns(path).unwrap_or(0),
+                input_kind: String::new(),
+                file_sha256: String::new(),
             }
             .encode()
         })
@@ -1505,6 +1590,7 @@ fn render(
             "session_id": session_id,
             "file_name": input.file_name().map(|n| n.to_string_lossy().into_owned()),
             "snapshot_end": snapshot_end,
+            "input_kind": flavor.as_str(),
         },
         "filters": {
             "scope": shared.scope.as_str(),
@@ -1562,6 +1648,8 @@ fn render(
                     "retry_cursor": retry_cursor_token(
                         s,
                         provider,
+                        flavor,
+                        file_sha256,
                         source_id,
                         session_id,
                         generation,
@@ -1635,7 +1723,11 @@ fn render(
         "exhausted": page_cursor.is_none() && stats.uninspected.is_empty(),
         "page_cursor": page_cursor,
         "append_cursor": append_cursor,
-        "cursor_note": "display cut => text_complete=false; page cursor resumes the fixed snapshot; append cursor reads later appends only",
+        "cursor_note": if flavor == RecordFlavor::OpenCodeExport {
+            "display cut => text_complete=false; fixed export: page cursor resumes the same whole-file snapshot; append cursor is not issued"
+        } else {
+            "display cut => text_complete=false; page cursor resumes the fixed snapshot; append cursor reads later appends only"
+        },
     });
     match shared.output {
         crate::cli::QueryOutput::Jsonl => stdout.push_str(&line(&metadata)),
@@ -1678,6 +1770,8 @@ fn render(
 fn retry_cursor_token(
     span: &RecordSpan,
     provider: Provider,
+    flavor: RecordFlavor,
+    file_sha256: &str,
     source_id: &str,
     session_id: &str,
     generation: Option<crate::query::cursor::Generation>,
@@ -1716,6 +1810,16 @@ fn retry_cursor_token(
         resume_anchor_hex,
         anchor_len: ANCHOR_WINDOW_BYTES.min(snapshot_end as usize) as u64,
         mtime_ns: file_mtime_ns(input).unwrap_or(0),
+        input_kind: if flavor == RecordFlavor::OpenCodeExport {
+            flavor.as_str().to_string()
+        } else {
+            String::new()
+        },
+        file_sha256: if flavor == RecordFlavor::OpenCodeExport {
+            file_sha256.to_string()
+        } else {
+            String::new()
+        },
     }
     .encode()
 }
@@ -1815,6 +1919,53 @@ fn validate_cursor(
     }
     if payload.offset > snapshot_end {
         return Err(CursorProblem::OffsetOutOfRange);
+    }
+    // Fixed JSON exports cannot use the line-oriented resume contract. The whole-document
+    // SHA-256 proves the snapshot did not change; the offset must be an element start.
+    if payload.input_kind == RecordFlavor::OpenCodeExport.as_str() {
+        if payload.kind != CursorKind::Page {
+            return Err(CursorProblem::WrongKind);
+        }
+        if payload.file_sha256.is_empty() {
+            return Err(CursorProblem::Malformed);
+        }
+        let doc = ExportDoc::open(path).map_err(|_| CursorProblem::Malformed)?;
+        *validation_bytes += doc.len();
+        if doc.len() < payload.snapshot_end {
+            return Err(CursorProblem::Truncated);
+        }
+        if doc.len() != payload.snapshot_end || doc.sha256 != payload.file_sha256 {
+            return Err(CursorProblem::AnchorMismatch);
+        }
+        if payload.offset == doc.len() {
+            if payload.subevent_index != 0 {
+                return Err(CursorProblem::OffsetOutOfRange);
+            }
+            return Ok(payload);
+        }
+        let span = doc
+            .span_starting_at(payload.offset)
+            .ok_or(CursorProblem::OffsetOutOfRange)?;
+        if span.raw_line != payload.raw_line {
+            return Err(CursorProblem::OffsetOutOfRange);
+        }
+        // Match JSONL cursor validation: the caller must raise the record budget before
+        // retrying an oversized element. Do not parse it merely to validate a subevent.
+        if span.byte_end - span.byte_start > max_record_bytes {
+            return Err(CursorProblem::OffsetOutOfRange);
+        }
+        let record = RecordSpan {
+            raw_line: span.raw_line,
+            byte_start: span.byte_start,
+            byte_end: span.byte_end,
+        };
+        let bytes = doc.span_bytes(&record).ok_or(CursorProblem::Malformed)?;
+        let mut normalizer = Normalizer::new(Provider::OpenCode, String::new());
+        let count = normalizer.normalize_export(record, bytes, source_id).len();
+        if i64::from(payload.subevent_index) >= count as i64 {
+            return Err(CursorProblem::OffsetOutOfRange);
+        }
+        return Ok(payload);
     }
     // The resume offset must be a real record boundary inside the stored snapshot. A forged
     // mid-record offset fails closed instead of silently re-reading from the wrong place.

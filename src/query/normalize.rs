@@ -9,7 +9,7 @@
 //! * `isMeta`/`isCompactSummary`/developer records are marked `framework`, never `human`.
 
 use crate::query::model::{
-    parse_rfc3339_ms, Kind, Origin, Provider, QEvent, Role, SourceRef, ToolObserved,
+    parse_rfc3339_ms, Kind, Origin, Provider, QEvent, RecordFlavor, Role, SourceRef, ToolObserved,
 };
 use crate::query::reader::RecordSpan;
 use crate::util::{function_output_text, json_text, text_from, value_as_string};
@@ -87,10 +87,30 @@ impl Normalizer {
         }
     }
 
-    /// Parse and normalize one physical record. Returns an empty vec for records that carry no
-    /// event (e.g. session metadata, which the caller extracts separately).
+    /// Parse and normalize one physical JSONL record.
     pub fn normalize(&mut self, span: RecordSpan, bytes: &[u8], source_id: &str) -> Vec<QEvent> {
-        self.coverage.add(&raw_type_key(self.provider, bytes));
+        self.normalize_impl(span, bytes, source_id, RecordFlavor::Jsonl)
+    }
+
+    /// Parse and normalize one `messages[*]` element of an OpenCode v2 export.
+    pub fn normalize_export(
+        &mut self,
+        span: RecordSpan,
+        bytes: &[u8],
+        source_id: &str,
+    ) -> Vec<QEvent> {
+        self.normalize_impl(span, bytes, source_id, RecordFlavor::OpenCodeExport)
+    }
+
+    fn normalize_impl(
+        &mut self,
+        span: RecordSpan,
+        bytes: &[u8],
+        source_id: &str,
+        flavor: RecordFlavor,
+    ) -> Vec<QEvent> {
+        self.coverage
+            .add(&raw_type_key(self.provider, bytes, flavor));
         let text = match std::str::from_utf8(bytes) {
             Ok(text) => text,
             Err(_) => {
@@ -155,30 +175,35 @@ impl Normalizer {
             )];
         };
 
-        if let Some(reason) = metadata_limit_reason(self.provider, object) {
+        if let Some(reason) = metadata_limit_reason(self.provider, object, flavor) {
             return self.rejected(span, source_id, reason);
         }
-        if let Some(reason) = subevent_count_limit_reason(self.provider, object) {
+        if let Some(reason) = subevent_count_limit_reason(self.provider, object, flavor) {
             return self.rejected(span, source_id, reason);
         }
 
         // A file may contain records from more than one session (e.g. an appended export).
-        // Trust the record's own metadata; never pair across sessions silently.
-        if let Some(record_session) = record_session_id(self.provider, object) {
-            if record_session.len() > MAX_ID_BYTES {
-                return self.rejected(
-                    span,
-                    source_id,
-                    "normalization limit exceeded: session id is too long",
-                );
+        // Trust the record's own metadata; never pair across sessions silently. Export messages
+        // carry no session id; the document's `info.id` was applied when the normalizer was built.
+        if flavor == RecordFlavor::Jsonl {
+            if let Some(record_session) = record_session_id(self.provider, object) {
+                if record_session.len() > MAX_ID_BYTES {
+                    return self.rejected(
+                        span,
+                        source_id,
+                        "normalization limit exceeded: session id is too long",
+                    );
+                }
+                self.session_id = record_session;
             }
-            self.session_id = record_session;
         }
+        let _ = flavor;
 
-        let drafts = match self.provider {
-            Provider::Codex => codex_drafts(object),
-            Provider::ClaudeCode => claude_drafts(object),
-            Provider::OpenCode => opencode_drafts(object),
+        let drafts = match (self.provider, flavor) {
+            (Provider::Codex, _) => codex_drafts(object),
+            (Provider::ClaudeCode, _) => claude_drafts(object),
+            (Provider::OpenCode, RecordFlavor::Jsonl) => opencode_drafts(object),
+            (Provider::OpenCode, RecordFlavor::OpenCodeExport) => opencode_v2_drafts(object),
         };
         if let Some(reason) = drafts_limit_reason(&drafts) {
             return self.rejected(span, source_id, reason);
@@ -186,6 +211,7 @@ impl Normalizer {
 
         let mut out = Vec::with_capacity(drafts.len().min(8));
         for (index, draft) in drafts.into_iter().enumerate() {
+            let epoch_override = draft.epoch_ms;
             let event = self.event(
                 span,
                 index as u32,
@@ -202,6 +228,10 @@ impl Normalizer {
                 draft.origin_id,
                 draft.role,
             );
+            let mut event = event;
+            if epoch_override.is_some() {
+                event.epoch_ms = epoch_override;
+            }
             if event.kind.is_message() && self.is_explicit_mirror(&event) {
                 // KEEP representation (root A02_PROVENANCE_GATE_1021): every physical row keeps
                 // its own raw pointer, and the mirror relation is explicit. Bodies are never
@@ -329,6 +359,8 @@ struct Draft {
     kind: Kind,
     source_kind: String,
     timestamp_raw: Option<String>,
+    /// Provider-native epoch milliseconds (OpenCode v2). Never derived from mtime.
+    epoch_ms: Option<i64>,
     phase: Option<String>,
     origin: Origin,
     text: String,
@@ -350,7 +382,11 @@ struct Draft {
 /// Amplification is still bounded: metadata repeated across subevents is re-checked per draft in
 /// [`drafts_limit_reason`] before any event is built, and that function also caps the total
 /// normalized bytes of one record.
-fn metadata_limit_reason(provider: Provider, object: &Map<String, Value>) -> Option<&'static str> {
+fn metadata_limit_reason(
+    provider: Provider,
+    object: &Map<String, Value>,
+    flavor: RecordFlavor,
+) -> Option<&'static str> {
     const IDENTIFIER_TOO_LONG: &str = "normalization limit exceeded: identifier is too long";
     const TIMESTAMP_TOO_LONG: &str = "normalization limit exceeded: timestamp is too long";
     const PHASE_TOO_LONG: &str = "normalization limit exceeded: phase is too long";
@@ -368,6 +404,21 @@ fn metadata_limit_reason(provider: Provider, object: &Map<String, Value>) -> Opt
         TIMESTAMP_TOO_LONG,
     ) {
         return Some(reason);
+    }
+
+    if flavor == RecordFlavor::OpenCodeExport {
+        if let Some(reason) = bounded(object.get("id"), MAX_ID_BYTES, IDENTIFIER_TOO_LONG) {
+            return Some(reason);
+        }
+        let items = object.get("content").and_then(Value::as_array);
+        for item in items.into_iter().flatten() {
+            for key in ["id", "name"] {
+                if let Some(reason) = bounded(item.get(key), MAX_ID_BYTES, IDENTIFIER_TOO_LONG) {
+                    return Some(reason);
+                }
+            }
+        }
+        return None;
     }
 
     match provider {
@@ -425,23 +476,64 @@ fn metadata_limit_reason(provider: Provider, object: &Map<String, Value>) -> Opt
 fn subevent_count_limit_reason(
     provider: Provider,
     object: &Map<String, Value>,
+    flavor: RecordFlavor,
 ) -> Option<&'static str> {
-    let count = match provider {
-        Provider::ClaudeCode => object
+    let count = match (provider, flavor) {
+        (Provider::OpenCode, RecordFlavor::OpenCodeExport) => {
+            let mut count = 0usize;
+            for item in object
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                count += 1;
+                if item.get("type").and_then(Value::as_str) == Some("tool") {
+                    let state = item.get("state");
+                    let status = state.and_then(|s| s.get("status")).and_then(Value::as_str);
+                    if matches!(status, Some("completed" | "error")) {
+                        count += 1; // The result is separate from the call.
+                    }
+                    if matches!(
+                        status,
+                        Some("streaming" | "running" | "completed" | "error")
+                    ) {
+                        count += state
+                            .and_then(|s| s.get("content"))
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter(|part| {
+                                !matches!(
+                                    part.get("type").and_then(Value::as_str),
+                                    Some("text" | "file")
+                                )
+                            })
+                            .take(MAX_SUBEVENTS_PER_RECORD + 1)
+                            .count();
+                    }
+                }
+                if count > MAX_SUBEVENTS_PER_RECORD {
+                    break;
+                }
+            }
+            count
+        }
+        (Provider::ClaudeCode, _) => object
             .get("message")
             .and_then(Value::as_object)
             .and_then(|message| message.get("content"))
             .and_then(Value::as_array)
             .map(Vec::len)
             .unwrap_or(0),
-        Provider::Codex => object
+        (Provider::Codex, _) => object
             .get("payload")
             .and_then(Value::as_object)
             .and_then(|payload| payload.get("content"))
             .and_then(Value::as_array)
             .map(Vec::len)
             .unwrap_or(0),
-        Provider::OpenCode => 0,
+        (Provider::OpenCode, RecordFlavor::Jsonl) => 0,
     };
     (count > MAX_SUBEVENTS_PER_RECORD).then_some("normalization limit exceeded: too many subevents")
 }
@@ -514,7 +606,7 @@ fn record_session_id(provider: Provider, object: &Map<String, Value>) -> Option<
     }
 }
 
-fn raw_type_key(provider: Provider, bytes: &[u8]) -> String {
+fn raw_type_key(provider: Provider, bytes: &[u8], flavor: RecordFlavor) -> String {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return "invalid_utf8".to_string();
     };
@@ -522,6 +614,9 @@ fn raw_type_key(provider: Provider, bytes: &[u8]) -> String {
         return "invalid_json".to_string();
     };
     let outer = object.get("type").and_then(Value::as_str).unwrap_or("None");
+    if flavor == RecordFlavor::OpenCodeExport {
+        return format!("opencode_export/{outer}");
+    }
     match provider {
         Provider::Codex => match object.get("payload").and_then(Value::as_object) {
             Some(payload) => format!(
@@ -542,6 +637,7 @@ fn tmp() -> Draft {
         kind: Kind::Unknown,
         source_kind: String::new(),
         timestamp_raw: None,
+        epoch_ms: None,
         phase: None,
         origin: Origin::Unknown,
         text: String::new(),
@@ -1027,6 +1123,249 @@ fn opencode_drafts(object: &Map<String, Value>) -> Vec<Draft> {
     vec![draft]
 }
 
+// ---------------------------------------------------------------------------
+// OpenCode v2 session export
+// ---------------------------------------------------------------------------
+
+fn epoch_ms_field(object: &Map<String, Value>) -> Option<i64> {
+    let value = object.get("time")?.as_object()?.get("created")?;
+    value
+        .as_i64()
+        .or_else(|| value.as_f64().map(|number| number.round() as i64))
+}
+
+fn tool_content_text(content: Option<&Value>) -> String {
+    content
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+fn join_nonempty(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
+    let message_type = object.get("type").and_then(Value::as_str).unwrap_or("");
+    let message_id = str_field(object, "id");
+    let epoch_ms = epoch_ms_field(object);
+    let base = |source_kind: &str, kind: Kind, origin: Origin, role: Option<Role>| {
+        let mut draft = tmp();
+        draft.source_kind = format!("opencode_export/{source_kind}");
+        draft.kind = kind;
+        draft.origin = origin;
+        draft.role = role;
+        draft.epoch_ms = epoch_ms;
+        draft.origin_id = message_id.clone();
+        draft
+    };
+    let mut out = Vec::new();
+    match message_type {
+        "user" => {
+            let mut draft = base("user", Kind::User, Origin::Unknown, Some(Role::User));
+            draft.text = str_field(object, "text").unwrap_or_default();
+            out.push(draft);
+        }
+        "assistant" => {
+            let Some(content) = object.get("content").and_then(Value::as_array) else {
+                // A known message type with an unexpected shape must keep its pointer rather
+                // than silently disappearing as if it were a legitimate empty record.
+                let mut draft = base("assistant/unknown", Kind::Unknown, Origin::Unknown, None);
+                draft.text = String::new();
+                out.push(draft);
+                return out;
+            };
+            if content.is_empty() && object.get("error").is_some() {
+                let mut draft = base("assistant/error", Kind::Unknown, Origin::Unknown, None);
+                draft.text = String::new();
+                out.push(draft);
+            }
+            for part in content {
+                let Some(part) = part.as_object() else {
+                    let mut draft = base("assistant/unknown", Kind::Unknown, Origin::Unknown, None);
+                    draft.text = String::new();
+                    out.push(draft);
+                    continue;
+                };
+                match part.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        let mut draft = base(
+                            "assistant/text",
+                            Kind::Assistant,
+                            Origin::Unknown,
+                            Some(Role::Assistant),
+                        );
+                        draft.text = str_field(part, "text").unwrap_or_default();
+                        out.push(draft);
+                    }
+                    "reasoning" => {
+                        let mut draft = base(
+                            "assistant/reasoning",
+                            Kind::Reasoning,
+                            Origin::Unknown,
+                            None,
+                        );
+                        draft.text = str_field(part, "text").unwrap_or_default();
+                        out.push(draft);
+                    }
+                    "tool" => {
+                        let call_id = str_field(part, "id");
+                        let tool_name = str_field(part, "name");
+                        let state = part.get("state").and_then(Value::as_object);
+                        let status = state
+                            .and_then(|state| state.get("status"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        if !matches!(status, "streaming" | "running" | "completed" | "error") {
+                            // Do not turn an unknown/missing tool state into a pending call:
+                            // keep the record auditable without guessing its lifecycle.
+                            let mut draft = base(
+                                "assistant/tool_unknown_status",
+                                Kind::Unknown,
+                                Origin::Unknown,
+                                None,
+                            );
+                            draft.tool_name = tool_name;
+                            draft.call_id = call_id;
+                            draft.text = String::new();
+                            out.push(draft);
+                            continue;
+                        }
+                        let input_text = match state.and_then(|state| state.get("input")) {
+                            Some(Value::String(text)) => text.clone(),
+                            Some(value) => json_text(value),
+                            None => String::new(),
+                        };
+                        let mut call = base(
+                            "assistant/tool_call",
+                            Kind::ToolCall,
+                            Origin::Unknown,
+                            Some(Role::Assistant),
+                        );
+                        call.tool_name = tool_name.clone();
+                        call.call_id = call_id.clone();
+                        call.text = input_text;
+                        out.push(call);
+
+                        let output = match status {
+                            "completed" => Some((
+                                tool_content_text(state.and_then(|state| state.get("content"))),
+                                false,
+                            )),
+                            "error" => {
+                                let content =
+                                    tool_content_text(state.and_then(|state| state.get("content")));
+                                let message = state
+                                    .and_then(|state| state.get("error"))
+                                    .and_then(|error| error.get("message"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                // Keep both the result body and the provider error message:
+                                // discarding either loses searchable evidence.
+                                Some((join_nonempty(&[content.as_str(), message]), true))
+                            }
+                            _ => None,
+                        };
+                        if let Some((text, is_error)) = output {
+                            let mut result = base(
+                                "assistant/tool_output",
+                                Kind::ToolOutput,
+                                Origin::Unknown,
+                                Some(Role::Assistant),
+                            );
+                            result.tool_name = tool_name.clone();
+                            result.call_id = call_id.clone();
+                            result.text = text;
+                            result.observed = ToolObserved::Returned {
+                                is_error,
+                                status: if is_error {
+                                    Some("error".to_string())
+                                } else {
+                                    Some("completed".to_string())
+                                },
+                            };
+                            out.push(result);
+                        }
+                        // Unknown tool-content types are not body text. Keep a pointer for
+                        // diagnostics instead of extracting a `text` field by guesswork.
+                        if let Some(items) = state
+                            .and_then(|state| state.get("content"))
+                            .and_then(Value::as_array)
+                        {
+                            for item in items {
+                                let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
+                                if !matches!(kind, "text" | "file") {
+                                    let mut draft = base(
+                                        "assistant/tool_content_unknown",
+                                        Kind::Unknown,
+                                        Origin::Unknown,
+                                        None,
+                                    );
+                                    draft.tool_name = tool_name.clone();
+                                    draft.call_id = call_id.clone();
+                                    draft.text = String::new();
+                                    out.push(draft);
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        let mut draft =
+                            base("assistant/unknown", Kind::Unknown, Origin::Unknown, None);
+                        draft.text = String::new();
+                        out.push(draft);
+                    }
+                }
+            }
+        }
+        "system" => {
+            let mut draft = base("system", Kind::Injected, Origin::Framework, None);
+            draft.text = str_field(object, "text").unwrap_or_default();
+            out.push(draft);
+        }
+        "synthetic" => {
+            let mut draft = base("synthetic", Kind::Injected, Origin::Framework, None);
+            draft.text = str_field(object, "text").unwrap_or_default();
+            out.push(draft);
+        }
+        "skill" => {
+            let mut draft = base("skill", Kind::Injected, Origin::Framework, None);
+            draft.text = str_field(object, "text").unwrap_or_default();
+            out.push(draft);
+        }
+        "compaction" => {
+            let mut draft = base("compaction", Kind::Compaction, Origin::Compaction, None);
+            draft.text = str_field(object, "summary").unwrap_or_default();
+            out.push(draft);
+        }
+        "agent-switched" | "model-selected" | "location-switched" | "idle" | "shell" => {
+            // Control/UI records: keep their position and type coverage, but never turn their
+            // bodies into public conversation.
+            let mut draft = base(message_type, Kind::Injected, Origin::Framework, None);
+            draft.text = String::new();
+            out.push(draft);
+        }
+        _ => {
+            let mut draft = base(message_type, Kind::Unknown, Origin::Unknown, None);
+            draft.text = String::new();
+            out.push(draft);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1120,6 +1459,96 @@ mod tests {
             events[0].is_private(),
             "framework injection is excluded by default"
         );
+    }
+
+    #[test]
+    fn opencode_v2_tool_error_keeps_body_and_provider_message() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let row = br#"{"id":"m","type":"assistant","time":{"created":1},"content":[{"type":"tool","id":"c1","name":"read","state":{"status":"error","input":{"path":"x"},"content":[{"type":"text","text":"partial body"}],"error":{"type":"tool.execution","message":"permission denied"}}}]}"#;
+        let events = normalizer.normalize_export(span(1), row, "src");
+        let output = events
+            .iter()
+            .find(|event| event.kind == Kind::ToolOutput)
+            .unwrap();
+        assert!(output.text.contains("partial body"), "{:?}", output.text);
+        assert!(
+            output.text.contains("permission denied"),
+            "{:?}",
+            output.text
+        );
+    }
+
+    #[test]
+    fn opencode_v2_unknown_tool_content_and_status_are_not_guessed() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let content = br#"{"id":"m1","type":"assistant","time":{"created":1},"content":[{"type":"tool","id":"c1","name":"read","state":{"status":"completed","input":{},"content":[{"type":"mystery","text":"SECRET_TOOL_BODY"},{"type":"text","text":"known body"}]}}]}"#;
+        let events = normalizer.normalize_export(span(1), content, "src");
+        assert!(events.iter().all(|event| event.text != "SECRET_TOOL_BODY"));
+        let output = events
+            .iter()
+            .find(|event| event.kind == Kind::ToolOutput)
+            .unwrap();
+        assert_eq!(output.text, "known body");
+        assert!(events
+            .iter()
+            .any(|event| event.kind == Kind::Unknown && event.call_id.as_deref() == Some("c1")));
+
+        let status = br#"{"id":"m2","type":"assistant","time":{"created":2},"content":[{"type":"tool","id":"c2","name":"read","state":{"status":"queued","input":{}}}]}"#;
+        let events = normalizer.normalize_export(span(2), status, "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::Unknown);
+        assert_eq!(events[0].call_id.as_deref(), Some("c2"));
+        assert!(events.iter().all(|event| event.kind != Kind::ToolCall));
+    }
+
+    #[test]
+    fn opencode_v2_expansion_is_rejected_before_building_drafts() {
+        // A single tool part can expand into a call, result, and many unknown pointers.
+        // The preflight must reject it before those pointers clone message/tool metadata.
+        let mut message = serde_json::json!({
+            "type": "assistant",
+            "content": [{
+                "type": "tool", "id": "c", "name": "read",
+                "state": {
+                    "status": "completed", "input": {},
+                    "content": vec![serde_json::json!({"type": "future"}); MAX_SUBEVENTS_PER_RECORD - 1]
+                }
+            }]
+        });
+        assert_eq!(
+            subevent_count_limit_reason(
+                Provider::OpenCode,
+                message.as_object().unwrap(),
+                RecordFlavor::OpenCodeExport,
+            ),
+            Some("normalization limit exceeded: too many subevents")
+        );
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let events =
+            normalizer.normalize_export(span(1), &serde_json::to_vec(&message).unwrap(), "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::ParseError);
+
+        message["content"][0]["state"]["content"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        let events =
+            normalizer.normalize_export(span(2), &serde_json::to_vec(&message).unwrap(), "src");
+        assert_eq!(events.len(), MAX_SUBEVENTS_PER_RECORD);
+        assert!(events.iter().all(|event| event.kind != Kind::ParseError));
+    }
+
+    #[test]
+    fn opencode_v2_assistant_without_content_keeps_an_unknown_pointer() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let row = br#"{"id":"m","type":"assistant","time":{"created":1}}"#;
+        let events = normalizer.normalize_export(span(1), row, "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::Unknown);
+        assert_eq!(events[0].text, "");
+        assert_eq!(events[0].source.byte_start, 0);
+        assert_eq!(normalizer.coverage.total(), 1);
     }
 
     #[test]

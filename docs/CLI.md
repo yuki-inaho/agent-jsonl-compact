@@ -88,8 +88,16 @@ agent-jsonl-compact view -i /path/rollout.jsonl \
 
 # 1 event を再読（表示上限と text_complete は維持）
 agent-jsonl-compact view -i /path/rollout.jsonl --event EVENT_ID --output jsonl
+
+# OpenCode v2 の保存済みexport（view/search専用）
+agent-jsonl-compact view -i /path/export.json --format opencode --output jsonl
+agent-jsonl-compact search -i /path/export.json --query keyword --scope tools --with-pair
 ```
 
+- OpenCode v2の `opencode session export <session-id>` が出力する単一JSONも `view` / `search` で読めます。
+  ファイル全体の上限は128 MiB、`--max-record-bytes` は各 `messages[*]` 要素に適用します。固定ファイルのため
+  append cursorは発行せず、page cursorは全体SHA-256に結び付きます。`sessions` の自動探索と
+  `-o` のlegacy抽出は対象外です。Desktop出力は実測していません。
 - 既定の表示範囲（scope）は `messages` です。`--scope tools` でツールの呼出しと結果を選べます。
   `--scope all` を指定しても、private reasoning・system・developer・compactionは表示しません。
 - `view` の既定表示件数は50件、`search` の既定ヒット数は20件です。
@@ -145,13 +153,14 @@ agent-jsonl-compact search -i /path/rollout.jsonl --query 'timeout|retry' --rege
 ### 4. 元ログの位置を確認する
 
 JSONLのイベント行には、元ログを読み直すための位置情報などが含まれます。
+OpenCode v2 exportでは、位置は変換後ファイルではなく元のexport JSONを指します。
 
 | フィールド | 意味 |
 |---|---|
 | `event_id` | 入力ファイルの識別情報、元の開始位置、行内のイベント位置から作る安定したID |
-| `source.raw_line` | 元ログの行番号（1始まり） |
-| `source.byte_start` / `byte_end` | 元ログのバイト範囲（0始まり、終了位置のバイトは含まない） |
-| `source.subevent_index` | 元ログの1行から複数イベントを取り出した場合の行内位置 |
+| `source.raw_line` | 元ログの行番号（1始まり）。v2 exportでは `messages[*]` 要素の開始行 |
+| `source.byte_start` / `byte_end` | 元ログのバイト範囲（0始まり、終了位置のバイトは含まない）。v2 exportでは要素全体（comma/空白を含まない） |
+| `source.subevent_index` | 元ログの1行（v2 exportでは1要素）から複数イベントを取り出した場合の位置 |
 | `text_complete` | 表示本文が完全か |
 | `message_origin` | `human` / `framework` / `compaction` / `unknown`。roleがuserでもhumanとは限らない |
 
@@ -173,6 +182,13 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | 用途 | 同じsnapshotの続き | 前回の完全行末より後の追記 |
 | 発行条件 | 未表示のprimaryが残っているとき | 全行を走査し、未検査の行がないとき |
 | 注意 | ページの途中ではappend cursorは出ない | 未検査の行を飛ばして先へ進まない |
+
+OpenCode v2 exportは固定JSONとして扱うため、append cursorを発行しません。page cursorは
+ファイル全体のSHA-256・長さ・要素の開始位置・`raw_line`・`subevent_index` を検証します。
+ファイルの置換・短縮・同じ長さでの内容変更を `cursor_invalid` で拒否するため、
+再エクスポートでファイルが変わった場合は先頭から読み直してください。
+再開のたびにファイル全体を読み直します。カーソルが指す要素も `--max-record-bytes` の対象です。
+検証に必要な上限が足りない場合は `cursor_invalid` となるので、上限を引き上げて再試行してください。
 
 - カーソルは発行時のフィルター、クエリ、表示範囲と、searchの `--context` を保持します。
   再開時に条件を省略すると、カーソル内の値を使います。同じ値の指定も可能です。
@@ -208,6 +224,8 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 - `--max-record-bytes`（既定1 MiB）を超える行は、`uninspected` として元ログの範囲だけを返します。
   `status: partial`、終了コード1となり、`append_cursor` は発行しません。メタデータの
   `counts.uninspected.samples[].retry_cursor` を使って、より大きい上限で同じ位置から再読できます。
+  OpenCode v2 exportでは各 `messages[*]` 要素が単位です。ファイル全体が128 MiBを超える場合は
+  `export_too_large`、JSONや `info` / `messages` の形が不正な場合は `format_invalid`（いずれも終了コード1）です。
 - 入力行サイズと表示量の上限は別々です。表示本文を省略しただけなら `text_complete: false` となり、`partial` にはなりません。
 
 ### 8. 読み取ったバイト数

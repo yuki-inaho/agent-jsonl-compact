@@ -4,7 +4,7 @@
 
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
-Codex CLI、Claude Code、OpenCodeの会話ログ（JSONL）を検索し、必要な箇所だけ読めるCLIです。
+Codex CLI、Claude Code、OpenCodeの会話ログを検索し、必要な箇所だけ読めるCLIです。
 会話をJSONLやMarkdownに保存することもできます。実行時にLLMやネットワーク接続は不要です。
 
 ## インストール
@@ -76,9 +76,19 @@ agent-jsonl-compact -i session.jsonl -o out --format-out both --summary
 |---|---|
 | Codex CLI | `~/.codex/sessions/` 以下のrollout JSONL |
 | Claude Code | `~/.claude/projects/` 以下のtranscript JSONL |
-| OpenCode | `opencode run --format json` のstdoutを保存したNDJSON |
+| OpenCode | `opencode run --format json` のstdoutを保存したNDJSON、または `opencode session export <session-id>` の単一JSON |
 
-OpenCodeのデータベースと、`opencode export` が出力する単一のJSON文書には対応していません。
+OpenCode v2.2.5のCLIで保存したエクスポートは、次のように閲覧・検索できます。
+
+```bash
+agent-jsonl-compact view -i export.json --tail 30
+agent-jsonl-compact search -i export.json --query "エラー" --scope tools --with-pair
+```
+
+エクスポートは `view` / `search` 専用です。DBの直接読取り、`sessions` による自動探索、
+`-o` による抽出には対応していません。Desktopからのエクスポートは未検証です。
+ファイル全体の上限は128 MiBです。1メッセージが `--max-record-bytes` を超えると、
+未検査の範囲を示した部分結果を返します。続きは同じファイルのpage cursorで読み、追記は監視しません。
 形式は自動判定します。必要なら `--format codex|claude_code|opencode` を明示してください。
 抽出済みの `*.clean.jsonl` は閲覧CLIの入力対象ではありません。
 形式ごとの根拠と制約は [入力形式](docs/INPUT_FORMATS.md) を参照してください。

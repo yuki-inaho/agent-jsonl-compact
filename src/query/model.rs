@@ -17,6 +17,31 @@ pub enum Provider {
     OpenCode,
 }
 
+/// Physical record container. Most providers use one JSON record per physical line; the
+/// OpenCode v2 export is one JSON document whose `messages[*]` elements are the records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordFlavor {
+    Jsonl,
+    OpenCodeExport,
+}
+
+impl RecordFlavor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RecordFlavor::Jsonl => "jsonl",
+            RecordFlavor::OpenCodeExport => "opencode_export",
+        }
+    }
+
+    pub fn from_cursor(value: &str) -> Self {
+        if value == RecordFlavor::OpenCodeExport.as_str() {
+            RecordFlavor::OpenCodeExport
+        } else {
+            RecordFlavor::Jsonl
+        }
+    }
+}
+
 impl Provider {
     pub fn as_str(self) -> &'static str {
         match self {
