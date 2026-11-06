@@ -25,6 +25,9 @@ pub const MAX_EXPORT_BYTES: u64 = 128 * 1024 * 1024;
 pub const PROBE_PREFIX_BYTES: u64 = 4 * 1024 * 1024;
 /// Metadata (`info`) is parsed for the session id/title only; it is bounded separately.
 pub const MAX_INFO_BYTES: u64 = 2 * 1024 * 1024;
+/// Session identity copied into every event and into cursor payloads. Keep it consistent with
+/// `MAX_CURSOR_SESSION_BYTES` rather than accepting an unbounded `info.id`.
+pub const MAX_EXPORT_ID_BYTES: usize = 512;
 const MAX_DEPTH: usize = 256;
 
 #[derive(Debug)]
@@ -110,12 +113,15 @@ impl ExportDoc {
 
     /// Testable variant: `limit` is the whole-document cap.
     pub fn open_with_limit(path: &Path, limit: u64) -> Result<Self, ExportError> {
-        let metadata = std::fs::metadata(path)?;
-        let len = metadata.len();
+        let file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
         if len > limit {
             return Err(ExportError::TooLarge { len, limit });
         }
-        let bytes = std::fs::read(path)?;
+        // Bound the actual read as well: the file may grow between metadata and read, and an
+        // unbounded `fs::read` would then allocate past the declared cap.
+        let mut bytes = Vec::with_capacity(len as usize);
+        file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
         if bytes.len() as u64 > limit {
             return Err(ExportError::TooLarge {
                 len: bytes.len() as u64,
@@ -139,6 +145,14 @@ impl ExportDoc {
             .as_object()
             .ok_or_else(|| ExportError::Invalid("info is not an object".to_string()))?;
         let session_id = info.get("id").and_then(Value::as_str).map(str::to_string);
+        if session_id
+            .as_deref()
+            .is_some_and(|id| id.len() > MAX_EXPORT_ID_BYTES)
+        {
+            return Err(ExportError::Invalid(format!(
+                "info.id exceeds {MAX_EXPORT_ID_BYTES} bytes"
+            )));
+        }
         let title = info
             .get("title")
             .and_then(Value::as_str)
@@ -707,6 +721,29 @@ mod tests {
         assign_lines(bytes, &mut spans);
         assert_eq!(spans[0].raw_line, 4);
         assert_eq!(spans[1].raw_line, 5);
+    }
+
+    #[test]
+    fn open_enforces_whole_document_and_session_id_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.json");
+        let body = r#"{"info":{"id":"s"},"messages":[]}"#;
+        std::fs::write(&path, body).unwrap();
+        assert!(matches!(
+            ExportDoc::open_with_limit(&path, 10),
+            Err(ExportError::TooLarge { .. })
+        ));
+        assert!(ExportDoc::open_with_limit(&path, body.len() as u64).is_ok());
+
+        let long_id = format!(
+            "{{\"info\":{{\"id\":\"{}\"}},\"messages\":[]}}",
+            "x".repeat(MAX_EXPORT_ID_BYTES + 1)
+        );
+        std::fs::write(&path, long_id).unwrap();
+        assert!(matches!(
+            ExportDoc::open(&path),
+            Err(ExportError::Invalid(reason)) if reason.contains("info.id")
+        ));
     }
 
     #[test]

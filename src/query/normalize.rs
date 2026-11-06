@@ -1134,8 +1134,20 @@ fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
             out.push(draft);
         }
         "assistant" => {
-            let content = object.get("content").and_then(Value::as_array);
-            for part in content.into_iter().flatten() {
+            let Some(content) = object.get("content").and_then(Value::as_array) else {
+                // A known message type with an unexpected shape must keep its pointer rather
+                // than silently disappearing as if it were a legitimate empty record.
+                let mut draft = base("assistant/unknown", Kind::Unknown, Origin::Unknown, None);
+                draft.text = String::new();
+                out.push(draft);
+                return out;
+            };
+            if content.is_empty() && object.get("error").is_some() {
+                let mut draft = base("assistant/error", Kind::Unknown, Origin::Unknown, None);
+                draft.text = String::new();
+                out.push(draft);
+            }
+            for part in content {
                 let Some(part) = part.as_object() else {
                     let mut draft = base("assistant/unknown", Kind::Unknown, Origin::Unknown, None);
                     draft.text = String::new();
@@ -1370,6 +1382,18 @@ mod tests {
             events[0].is_private(),
             "framework injection is excluded by default"
         );
+    }
+
+    #[test]
+    fn opencode_v2_assistant_without_content_keeps_an_unknown_pointer() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let row = br#"{"id":"m","type":"assistant","time":{"created":1}}"#;
+        let events = normalizer.normalize_export(span(1), row, "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::Unknown);
+        assert_eq!(events[0].text, "");
+        assert_eq!(events[0].source.byte_start, 0);
+        assert_eq!(normalizer.coverage.total(), 1);
     }
 
     #[test]

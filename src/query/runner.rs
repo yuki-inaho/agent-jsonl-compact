@@ -1723,7 +1723,11 @@ fn render(
         "exhausted": page_cursor.is_none() && stats.uninspected.is_empty(),
         "page_cursor": page_cursor,
         "append_cursor": append_cursor,
-        "cursor_note": "display cut => text_complete=false; page cursor resumes the fixed snapshot; append cursor reads later appends only",
+        "cursor_note": if flavor == RecordFlavor::OpenCodeExport {
+            "display cut => text_complete=false; fixed export: page cursor resumes the same whole-file snapshot; append cursor is not issued"
+        } else {
+            "display cut => text_complete=false; page cursor resumes the fixed snapshot; append cursor reads later appends only"
+        },
     });
     match shared.output {
         crate::cli::QueryOutput::Jsonl => stdout.push_str(&line(&metadata)),
