@@ -2,8 +2,8 @@
 name: agent-jsonl-compact-reader
 description: >-
   Discover, view, search, and live-tail large Codex CLI, Claude Code, or OpenCode
-  session logs (JSONL or OpenCode v2 export JSON) without loading the raw file into context, and trace tool-call
-  evidence back to raw byte positions. Use when asked to find a past session, read or
+  session logs (JSONL or OpenCode v2 export JSON) without loading the raw file into
+  context, and trace tool-call evidence back to raw byte positions. Use when asked to find a past session, read or
   summarize a transcript, search within a session, read appended events of a running
   session, or verify which commands actually ran.
   Triggers: 過去セッションのjsonlを探す/読む/要約する, セッション候補を探す,
@@ -39,7 +39,10 @@ agent-jsonl-compact --version
 無ければ「7. 保存する」の抽出を使う。導入や更新は
 [配布元README](https://github.com/yuki-inaho/agent-jsonl-compact#readme) に従う。
 スキルを読むだけでインストール済みのコマンドを更新しない。
-`view` があってもOpenCode v2 exportに対応するとは限らない。利用中の版のREADMEで対応入力を確認する。
+`view` があってもOpenCode v2 exportに対応するとは限らない。公開タグ `v0.5.1` は非対応で、
+[対応追加後のビルド](https://github.com/yuki-inaho/agent-jsonl-compact/pull/15)が必要。
+配布版の変更履歴で対応を確認し、未配布なら配布元READMEの開発手順に従ってソースからビルドする。
+版番号が同じ開発ビルドもあるため、次の `source_commit` も確認する。
 `version` サブコマンドがあれば `version --output json` で版・source date・schema・
 `source_commit`（取得不能なら `unknown`）を記録する。`source_commit_dirty=true` のバイナリは
 未コミット変更を含むため、監査済みソースとの対応を確定しない。`source_commit_dirty=null` は不明を表す。
@@ -68,6 +71,7 @@ v2 exportはこの探索の対象外なので、保存済みファイルを `vie
 
 `status: partial` の候補一覧は網羅的ではない。
 `scan.scan_limit_reached`・`records_invalid`・`records_uninspected` で理由を確認する。
+`session_resolution_incomplete` は候補を十分に調べられず、一意性や不在を断定できないことを示す。
 `session_ambiguous` / `session_not_found` では先頭候補を採用せず、rootを狭めるか `-i FILE` で指定し直す。
 
 ## 3. 必要箇所を読む・検索する
@@ -96,8 +100,9 @@ roleや時刻のsoft filterを越えた文脈は `is_context: true` となる。
 既定表示は `view` 50件、`search` 20件。`--max-events` はprimary・context・pairの合計で
 既定200件、上限10,000件。`--context` の上限は10,000。
 `text_complete: false` は表示の省略であり、取得範囲の欠落を意味しない。
-一致位置は1イベント最大256件。`matched_ranges_truncated: true` のとき
-`matched_ranges_total` を確認し、全位置が返ったと報告しない。
+一致位置は1イベント最大256件。`matched_ranges_truncated: true` なら
+`matched_ranges_total` は観測した一致数の下限であり、全位置が返ったと報告しない。
+検索が時間上限に達すると `scan.search_timed_out: true` と `partial` が返る。
 `--event EVENT_ID` は対象の絞込みであり、同じ予算で全文が返る保証はない。
 
 ## 4. 元位置とツールの対応を確認する
@@ -106,6 +111,7 @@ roleや時刻のsoft filterを越えた文脈は `is_context: true` となる。
 |---|---|
 | `event_id` | `--event` で再読するための安定ID |
 | `source.raw_line` / `byte_start` / `byte_end` | 生ログの行とbyte範囲。終端排他。v2 exportでは `messages[*]` 要素の元JSON範囲 |
+| `source.raw_line_verified` | 行番号を今回の走査で確認したか。cursorから継承した場合は `false` |
 | `source.subevent_index` | 1行（v2 exportでは1メッセージ）から生成するeventのindex。元のcontent配列のindexとは限らない |
 | `message_origin` | human / framework / compaction / unknown。user roleだけで人間の発言とは判断しない |
 | `matched_ranges` | 表示後の文字位置ではなく、原文textのUTF-8 byte位置 |
@@ -157,7 +163,7 @@ cursorはUnixのfile generationを使い、非Unixでは明示拒否される。
 |---|---|
 | 0 | 正常処理。正当な0件を含む。本文とmetadataを読む |
 | 1 | partial・形式未確定・source/cursor不正・`session_resolution_incomplete`。`status` と `counts` で理由を調べる |
-| 2 | 引数・query構文不正。指定を修正する |
+| 2 | 引数・query構文不正・`cursor_too_large`。指定を修正する |
 
 `--max-output-bytes` はstdoutとstderrの合計で既定32768、最小8192。
 `--max-record-bytes` は既定1 MiB。超過行はuninspected / partialとなる。
