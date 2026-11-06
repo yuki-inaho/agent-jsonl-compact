@@ -921,6 +921,191 @@ fn t10_unknown_message_and_part_types_are_counted_with_positions_not_guessed() {
     assert_eq!(coverage["opencode_export/assistant"], 1);
 }
 
+// T14 ----------------------------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn t14_fifo_input_is_rejected_without_blocking() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let sandbox = Sandbox::new();
+    let path = sandbox.path().join("input.fifo");
+    let status = Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed: {status}");
+
+    let mut child = Command::new(BIN)
+        .env_clear()
+        .env("HOME", sandbox.home())
+        .env("PATH", "/usr/bin:/bin")
+        .current_dir(sandbox.path())
+        .args([
+            "view",
+            "-i",
+            path.to_str().unwrap(),
+            "--format",
+            "opencode",
+            "--output",
+            "jsonl",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn binary");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("FIFO input blocked instead of being rejected");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("source_unreadable") || stderr.contains("regular file"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+// T15 ----------------------------------------------------------------------
+
+#[test]
+fn t15_error_and_unknown_tool_shapes_keep_evidence_without_guessing() {
+    let sandbox = Sandbox::new();
+    let body = export_text(
+        vec![
+            assistant(
+                "m1",
+                vec![json!({
+                    "type": "tool",
+                    "id": "call_error",
+                    "name": "read",
+                    "state": {
+                        "status": "error",
+                        "input": {"path": "x"},
+                        "content": [{"type": "text", "text": "partial body"}],
+                        "error": {"type": "tool.execution", "message": "permission denied"}
+                    }
+                })],
+                1_700_000_000_000,
+            ),
+            assistant(
+                "m2",
+                vec![json!({
+                    "type": "tool",
+                    "id": "call_unknown_content",
+                    "name": "read",
+                    "state": {
+                        "status": "completed",
+                        "input": {},
+                        "content": [
+                            {"type": "mystery", "text": "SECRET_TOOL_BODY"},
+                            {"type": "text", "text": "known body"}
+                        ]
+                    }
+                })],
+                1_700_000_001_000,
+            ),
+            assistant(
+                "m3",
+                vec![json!({
+                    "type": "tool",
+                    "id": "call_unknown_status",
+                    "name": "read",
+                    "state": {"status": "queued", "input": {}}
+                })],
+                1_700_000_002_000,
+            ),
+        ],
+        "ses_t15",
+        true,
+    );
+    let path = write(&sandbox, "t15.json", &body);
+    let out = ok(
+        &sandbox,
+        &[
+            "view",
+            "-i",
+            &path,
+            "--scope",
+            "tools",
+            "--with-pair",
+            "--output",
+            "jsonl",
+        ],
+    );
+    let error_output = out
+        .events()
+        .into_iter()
+        .find(|event| event["call_id"] == "call_error" && event["kind"] == "tool_output")
+        .unwrap();
+    let text = error_output["text"].as_str().unwrap();
+    assert!(text.contains("partial body"), "{text}");
+    assert!(text.contains("permission denied"), "{text}");
+    assert_eq!(error_output["tool_observed"]["is_error"], true);
+
+    let unknown = ok(
+        &sandbox,
+        &["view", "-i", &path, "--scope", "all", "--output", "jsonl"],
+    );
+    assert!(!unknown.stdout.contains("SECRET_TOOL_BODY"));
+    assert!(unknown.stdout.contains("known body"));
+    assert!(
+        unknown.metadata()["counts"]["unknown"]["events"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 2
+    );
+    assert!(
+        unknown
+            .events()
+            .iter()
+            .all(|event| event["call_id"] != "call_unknown_status" || event["kind"] != "tool_call"),
+        "unknown status must not become a pending call"
+    );
+
+    let error_search = ok(
+        &sandbox,
+        &[
+            "search",
+            "-i",
+            &path,
+            "--query",
+            "permission denied",
+            "--scope",
+            "tools",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(error_search.metadata()["selected"], 1);
+
+    let secret_search = ok(
+        &sandbox,
+        &[
+            "search",
+            "-i",
+            &path,
+            "--query",
+            "SECRET_TOOL_BODY",
+            "--scope",
+            "all",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(secret_search.metadata()["selected"], 0);
+}
+
 // T11 ----------------------------------------------------------------------
 
 #[test]

@@ -12,7 +12,7 @@
 //! messages. Files above the cap are rejected instead of being partially inspected.
 
 use crate::query::cursor::sha256_hex;
-use crate::query::reader::{LineItem, RecordSpan, ScanSummary};
+use crate::query::reader::{open_regular, LineItem, RecordSpan, ScanSummary};
 use serde_json::Value;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -113,7 +113,7 @@ impl ExportDoc {
 
     /// Testable variant: `limit` is the whole-document cap.
     pub fn open_with_limit(path: &Path, limit: u64) -> Result<Self, ExportError> {
-        let file = std::fs::File::open(path)?;
+        let file = open_regular(path)?;
         let len = file.metadata()?.len();
         if len > limit {
             return Err(ExportError::TooLarge { len, limit });
@@ -207,7 +207,7 @@ impl ExportDoc {
 
 /// Probe a file's prefix without loading the full document.
 pub fn probe(path: &Path) -> Result<Probe, ExportError> {
-    let file = std::fs::File::open(path)?;
+    let file = open_regular(path)?;
     let len = file.metadata()?.len();
     let take = len.min(PROBE_PREFIX_BYTES);
     let mut bytes = Vec::with_capacity(take as usize);
@@ -721,6 +721,27 @@ mod tests {
         assign_lines(bytes, &mut spans);
         assert_eq!(spans[0].raw_line, 4);
         assert_eq!(spans[1].raw_line, 5);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_is_rejected_without_blocking() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input.fifo");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status}");
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(probe(&path).is_err() && ExportDoc::open(&path).is_err());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(true));
     }
 
     #[test]

@@ -1105,11 +1105,21 @@ fn tool_content_text(content: Option<&Value>) -> String {
         .map(|items| {
             items
                 .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
                 .filter_map(|item| item.get("text").and_then(Value::as_str))
                 .collect::<Vec<_>>()
                 .join("\n")
         })
         .unwrap_or_default()
+}
+
+fn join_nonempty(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
@@ -1183,6 +1193,21 @@ fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
                             .and_then(|state| state.get("status"))
                             .and_then(Value::as_str)
                             .unwrap_or("");
+                        if !matches!(status, "streaming" | "running" | "completed" | "error") {
+                            // Do not turn an unknown/missing tool state into a pending call:
+                            // keep the record auditable without guessing its lifecycle.
+                            let mut draft = base(
+                                "assistant/tool_unknown_status",
+                                Kind::Unknown,
+                                Origin::Unknown,
+                                None,
+                            );
+                            draft.tool_name = tool_name;
+                            draft.call_id = call_id;
+                            draft.text = String::new();
+                            out.push(draft);
+                            continue;
+                        }
                         let input_text = match state.and_then(|state| state.get("input")) {
                             Some(Value::String(text)) => text.clone(),
                             Some(value) => json_text(value),
@@ -1212,14 +1237,9 @@ fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
                                     .and_then(|error| error.get("message"))
                                     .and_then(Value::as_str)
                                     .unwrap_or("");
-                                Some((
-                                    if content.is_empty() {
-                                        message.to_string()
-                                    } else {
-                                        content
-                                    },
-                                    true,
-                                ))
+                                // Keep both the result body and the provider error message:
+                                // discarding either loses searchable evidence.
+                                Some((join_nonempty(&[content.as_str(), message]), true))
                             }
                             _ => None,
                         };
@@ -1230,8 +1250,8 @@ fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
                                 Origin::Unknown,
                                 Some(Role::Assistant),
                             );
-                            result.tool_name = tool_name;
-                            result.call_id = call_id;
+                            result.tool_name = tool_name.clone();
+                            result.call_id = call_id.clone();
                             result.text = text;
                             result.observed = ToolObserved::Returned {
                                 is_error,
@@ -1242,6 +1262,28 @@ fn opencode_v2_drafts(object: &Map<String, Value>) -> Vec<Draft> {
                                 },
                             };
                             out.push(result);
+                        }
+                        // Unknown tool-content types are not body text. Keep a pointer for
+                        // diagnostics instead of extracting a `text` field by guesswork.
+                        if let Some(items) = state
+                            .and_then(|state| state.get("content"))
+                            .and_then(Value::as_array)
+                        {
+                            for item in items {
+                                let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
+                                if !matches!(kind, "text" | "file") {
+                                    let mut draft = base(
+                                        "assistant/tool_content_unknown",
+                                        Kind::Unknown,
+                                        Origin::Unknown,
+                                        None,
+                                    );
+                                    draft.tool_name = tool_name.clone();
+                                    draft.call_id = call_id.clone();
+                                    draft.text = String::new();
+                                    out.push(draft);
+                                }
+                            }
                         }
                     }
                     _ => {
@@ -1382,6 +1424,46 @@ mod tests {
             events[0].is_private(),
             "framework injection is excluded by default"
         );
+    }
+
+    #[test]
+    fn opencode_v2_tool_error_keeps_body_and_provider_message() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let row = br#"{"id":"m","type":"assistant","time":{"created":1},"content":[{"type":"tool","id":"c1","name":"read","state":{"status":"error","input":{"path":"x"},"content":[{"type":"text","text":"partial body"}],"error":{"type":"tool.execution","message":"permission denied"}}}]}"#;
+        let events = normalizer.normalize_export(span(1), row, "src");
+        let output = events
+            .iter()
+            .find(|event| event.kind == Kind::ToolOutput)
+            .unwrap();
+        assert!(output.text.contains("partial body"), "{:?}", output.text);
+        assert!(
+            output.text.contains("permission denied"),
+            "{:?}",
+            output.text
+        );
+    }
+
+    #[test]
+    fn opencode_v2_unknown_tool_content_and_status_are_not_guessed() {
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let content = br#"{"id":"m1","type":"assistant","time":{"created":1},"content":[{"type":"tool","id":"c1","name":"read","state":{"status":"completed","input":{},"content":[{"type":"mystery","text":"SECRET_TOOL_BODY"},{"type":"text","text":"known body"}]}}]}"#;
+        let events = normalizer.normalize_export(span(1), content, "src");
+        assert!(events.iter().all(|event| event.text != "SECRET_TOOL_BODY"));
+        let output = events
+            .iter()
+            .find(|event| event.kind == Kind::ToolOutput)
+            .unwrap();
+        assert_eq!(output.text, "known body");
+        assert!(events
+            .iter()
+            .any(|event| event.kind == Kind::Unknown && event.call_id.as_deref() == Some("c1")));
+
+        let status = br#"{"id":"m2","type":"assistant","time":{"created":2},"content":[{"type":"tool","id":"c2","name":"read","state":{"status":"queued","input":{}}}]}"#;
+        let events = normalizer.normalize_export(span(2), status, "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::Unknown);
+        assert_eq!(events[0].call_id.as_deref(), Some("c2"));
+        assert!(events.iter().all(|event| event.kind != Kind::ToolCall));
     }
 
     #[test]
