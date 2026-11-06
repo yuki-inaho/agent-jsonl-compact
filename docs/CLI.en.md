@@ -187,9 +187,11 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | caution | append cursor is not issued mid-page | never advances past an uninspected record |
 
 An OpenCode v2 export is a fixed JSON document, so no append cursor is issued. Its page cursor
-validates the whole-file SHA-256, length, element start, `raw_line`, and subevent, and rejects
-replacement, truncation, same-length rewrites, and re-exports with `cursor_invalid`. Resuming
-re-reads the whole document.
+validates the whole-file SHA-256, length, element start, `raw_line`, and `subevent_index`.
+Replacement, truncation, and same-length content changes produce `cursor_invalid`.
+Start from the beginning if re-exporting changes the file. Resuming re-reads the whole document.
+The element at the cursor must also fit within `--max-record-bytes`; otherwise validation returns
+`cursor_invalid`. Raise the limit before retrying.
 
 - A cursor preserves the filters, query, scope, and search `--context` from the original request.
   On resume, omitted options use the cursor's values. You may also specify the same values.

@@ -24,6 +24,16 @@ add synthetic test fixtures and confirm that `just check` passes before acceptin
 | OpenCode run | NDJSON from `run --format json`, sessionID, text/reasoning/tool_use/tool_output parts | User prompts or model names absent from run JSONL are not invented. Databases are out of scope |
 | OpenCode 2.2.5 export | `info.id` / `info.title`, user text in `messages[*]`, assistant text/reasoning/tool content, tool state (completed/error/running/streaming), `time.created`, original JSON byte range/line/subevent | Unknown message/content types keep only a count and position, not a body. Databases, automatic `sessions` discovery, append monitoring, and export-completeness guarantees are out of scope. Whole-document reads are capped at 128 MiB |
 
+For OpenCode v2 tool errors, both the output body and `state.error.message` are searchable.
+Unknown tool states become `unknown`, not pending calls. Unknown tool content keeps a count and
+position without exposing its body.
+
+The 128 MiB cap limits the input file, not total process memory. The reader holds the original
+bytes and an index of element positions. Metadata and tool-pair scans also re-read the whole file.
+The `info` object is capped at 2 MiB and `info.id` at 512 bytes. Each element can produce at most
+256 events; exceeding that limit produces a partial result. Keep the file unchanged while reading.
+Reading the whole export does not prove that it contains the original session's complete history.
+
 Legacy extraction keeps `isMeta` as `injected` / `origin=framework` and `isCompactSummary` as
 `compacted` / `origin=compaction`. The viewer excludes both from hard scope. Extraction does not
 apply the viewer's exclusions, so reasoning, internal instructions, and compaction text may remain

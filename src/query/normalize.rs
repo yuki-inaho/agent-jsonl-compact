@@ -479,11 +479,46 @@ fn subevent_count_limit_reason(
     flavor: RecordFlavor,
 ) -> Option<&'static str> {
     let count = match (provider, flavor) {
-        (Provider::OpenCode, RecordFlavor::OpenCodeExport) => object
-            .get("content")
-            .and_then(Value::as_array)
-            .map(Vec::len)
-            .unwrap_or(0),
+        (Provider::OpenCode, RecordFlavor::OpenCodeExport) => {
+            let mut count = 0usize;
+            for item in object
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                count += 1;
+                if item.get("type").and_then(Value::as_str) == Some("tool") {
+                    let state = item.get("state");
+                    let status = state.and_then(|s| s.get("status")).and_then(Value::as_str);
+                    if matches!(status, Some("completed" | "error")) {
+                        count += 1; // The result is separate from the call.
+                    }
+                    if matches!(
+                        status,
+                        Some("streaming" | "running" | "completed" | "error")
+                    ) {
+                        count += state
+                            .and_then(|s| s.get("content"))
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter(|part| {
+                                !matches!(
+                                    part.get("type").and_then(Value::as_str),
+                                    Some("text" | "file")
+                                )
+                            })
+                            .take(MAX_SUBEVENTS_PER_RECORD + 1)
+                            .count();
+                    }
+                }
+                if count > MAX_SUBEVENTS_PER_RECORD {
+                    break;
+                }
+            }
+            count
+        }
         (Provider::ClaudeCode, _) => object
             .get("message")
             .and_then(Value::as_object)
@@ -1464,6 +1499,44 @@ mod tests {
         assert_eq!(events[0].kind, Kind::Unknown);
         assert_eq!(events[0].call_id.as_deref(), Some("c2"));
         assert!(events.iter().all(|event| event.kind != Kind::ToolCall));
+    }
+
+    #[test]
+    fn opencode_v2_expansion_is_rejected_before_building_drafts() {
+        // A single tool part can expand into a call, result, and many unknown pointers.
+        // The preflight must reject it before those pointers clone message/tool metadata.
+        let mut message = serde_json::json!({
+            "type": "assistant",
+            "content": [{
+                "type": "tool", "id": "c", "name": "read",
+                "state": {
+                    "status": "completed", "input": {},
+                    "content": vec![serde_json::json!({"type": "future"}); MAX_SUBEVENTS_PER_RECORD - 1]
+                }
+            }]
+        });
+        assert_eq!(
+            subevent_count_limit_reason(
+                Provider::OpenCode,
+                message.as_object().unwrap(),
+                RecordFlavor::OpenCodeExport,
+            ),
+            Some("normalization limit exceeded: too many subevents")
+        );
+        let mut normalizer = Normalizer::new(Provider::OpenCode, "s".to_string());
+        let events =
+            normalizer.normalize_export(span(1), &serde_json::to_vec(&message).unwrap(), "src");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::ParseError);
+
+        message["content"][0]["state"]["content"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        let events =
+            normalizer.normalize_export(span(2), &serde_json::to_vec(&message).unwrap(), "src");
+        assert_eq!(events.len(), MAX_SUBEVENTS_PER_RECORD);
+        assert!(events.iter().all(|event| event.kind != Kind::ParseError));
     }
 
     #[test]

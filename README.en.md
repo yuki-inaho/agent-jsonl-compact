@@ -4,7 +4,7 @@
 
 [![ci](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml/badge.svg)](https://github.com/yuki-inaho/agent-jsonl-compact/actions/workflows/ci.yml)
 
-Search Codex CLI, Claude Code, and OpenCode conversation logs (JSONL), then read the parts you need.
+Search Codex CLI, Claude Code, and OpenCode conversation logs, then read the parts you need.
 You can also export conversations to JSONL or Markdown. The CLI needs no LLM or network connection at runtime.
 
 ## Install
@@ -78,11 +78,17 @@ See the [CLI reference](docs/CLI.en.md) for options, output limits, cursors for 
 | Claude Code | Transcript JSONL under `~/.claude/projects/` |
 | OpenCode | Captured stdout NDJSON from `opencode run --format json`, or the single JSON from `opencode session export <session-id>` |
 
-OpenCode databases and automatic discovery of export files by `sessions` are not supported.
-A v2 export JSON can be read with `view -i FILE` / `search -i FILE`. The whole document is capped at
-128 MiB; an element above `--max-record-bytes` is reported as `uninspected` (partial result). Because
-the file is fixed, no append cursor is issued and page cursors bind to the whole-file SHA-256. Legacy
-extraction (`-o` with `-i`) still accepts only the three JSONL formats; v2 exports are viewer-only.
+Read and search an export saved by the OpenCode v2.2.5 CLI:
+
+```bash
+agent-jsonl-compact view -i export.json --tail 30
+agent-jsonl-compact search -i export.json --query "error" --scope tools --with-pair
+```
+
+Exports are supported by `view` / `search` only. Direct database reads, automatic discovery by
+`sessions`, and extraction with `-o` are not supported. Desktop exports have not been tested.
+The whole file is capped at 128 MiB. A message above `--max-record-bytes` produces a partial result
+with its uninspected range. Use a page cursor to continue through the same file; appends are not monitored.
 Formats are detected automatically. Override with `--format codex|claude_code|opencode` when needed.
 Exported `*.clean.jsonl` is not an input format for the viewer commands.
 See [input formats](docs/INPUT_FORMATS.en.md) for sources and limitations.

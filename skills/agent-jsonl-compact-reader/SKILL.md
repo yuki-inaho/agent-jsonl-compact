@@ -2,7 +2,7 @@
 name: agent-jsonl-compact-reader
 description: >-
   Discover, view, search, and live-tail large Codex CLI, Claude Code, or OpenCode
-  session JSONL logs without loading the raw file into context, and trace tool-call
+  session logs (JSONL or OpenCode v2 export JSON) without loading the raw file into context, and trace tool-call
   evidence back to raw byte positions. Use when asked to find a past session, read or
   summarize a transcript, search within a session, read appended events of a running
   session, or verify which commands actually ran.
@@ -24,6 +24,13 @@ OpenCode v2 exportは `view` / `search` 専用で、`sessions` と旧抽出は�
 
 ```bash
 command -v agent-jsonl-compact
+```
+
+未導入の場合は[リリースページ](https://github.com/yuki-inaho/agent-jsonl-compact/releases/latest)の
+対応する配布物か、[READMEのインストール手順](https://github.com/yuki-inaho/agent-jsonl-compact#インストール)を使う。
+導入後に利用可能な機能を確認する。
+
+```bash
 agent-jsonl-compact --help
 agent-jsonl-compact --version
 ```
@@ -32,9 +39,10 @@ agent-jsonl-compact --version
 無ければ「7. 保存する」の抽出を使う。導入や更新は
 [配布元README](https://github.com/yuki-inaho/agent-jsonl-compact#readme) に従う。
 スキルを読むだけでインストール済みのコマンドを更新しない。
+`view` があってもOpenCode v2 exportに対応するとは限らない。利用中の版のREADMEで対応入力を確認する。
 `version` サブコマンドがあれば `version --output json` で版・source date・schema・
 `source_commit`（取得不能なら `unknown`）を記録する。`source_commit_dirty=true` のバイナリは
-未コミット変更を含むため、監査済みソースとの対応を確定しない。
+未コミット変更を含むため、監査済みソースとの対応を確定しない。`source_commit_dirty=null` は不明を表す。
 
 | provider | 入力の所在 |
 |---|---|
@@ -55,7 +63,8 @@ agent-jsonl-compact sessions --provider all --root /path/to/logs --output jsonl
 
 `--cwd` はmetadataの完全一致。子ディレクトリを含める場合だけ `--cwd-children` を使う。
 開始時刻と最終event時刻を分けて読み、mtimeで実行中かどうかを判定しない。
-OpenCodeは既定rootでは探さない。`--root` を指定する。
+OpenCode run JSONLは既定rootでは探さない。`--root` を指定する。
+v2 exportはこの探索の対象外なので、保存済みファイルを `view -i FILE` / `search -i FILE` に渡す。
 
 `status: partial` の候補一覧は網羅的ではない。
 `scan.scan_limit_reached`・`records_invalid`・`records_uninspected` で理由を確認する。
@@ -97,7 +106,7 @@ roleや時刻のsoft filterを越えた文脈は `is_context: true` となる。
 |---|---|
 | `event_id` | `--event` で再読するための安定ID |
 | `source.raw_line` / `byte_start` / `byte_end` | 生ログの行とbyte範囲。終端排他。v2 exportでは `messages[*]` 要素の元JSON範囲 |
-| `source.subevent_index` | 1行から複数eventが出る場合のindex |
+| `source.subevent_index` | 1行（v2 exportでは1メッセージ）から生成するeventのindex。元のcontent配列のindexとは限らない |
 | `message_origin` | human / framework / compaction / unknown。user roleだけで人間の発言とは判断しない |
 | `matched_ranges` | 表示後の文字位置ではなく、原文textのUTF-8 byte位置 |
 | `paired_total` / `paired_event_ids` | 対応する実総数と、保持したIDの一覧 |
@@ -134,6 +143,7 @@ agent-jsonl-compact view -i session.jsonl --after-cursor 'c1:...' --output jsonl
 
 `page_cursor` は同じsnapshotの続き。`append_cursor` は走査完了後の追記用で、途中ページでは出ない。
 OpenCode v2 exportは固定JSONなのでappend cursorを発行せず、page cursorは全体SHA-256で変更を拒否する。
+再開時も全体を読み直す。カーソルが指す要素が `--max-record-bytes` を超える場合は、上限を引き上げて再試行する。
 cursorはfilter・query・scopeとsearchの `--context` を再利用する。
 異なる値の明示は `cursor_invalid` / `filter_mismatch`。同じ値なら競合しない。
 `--limit` / `--tail` / `--max-events` / `--max-output-bytes` は表示条件なので変更できる。
@@ -157,6 +167,7 @@ cursorはUnixのfile generationを使い、非Unixでは明示拒否される。
 ## 7. 保存する
 
 OpenCode v2 exportは閲覧専用で、この旧抽出（`-o`）の対象外。
+
 ```bash
 agent-jsonl-compact -i session.jsonl -o temp/session_extracts
 agent-jsonl-compact -i session.jsonl --stats

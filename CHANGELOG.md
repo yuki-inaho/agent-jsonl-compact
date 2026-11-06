@@ -4,6 +4,12 @@
 
 All notable changes to `agent-jsonl-compact` are recorded here.
 
+## Unreleased
+
+### Added
+
+- Read OpenCode v2.2.5 session export JSON with `view` and `search`, including user/assistant messages, tool calls and results, original byte positions, and fixed-file page cursors. The input is capped at 128 MiB; database reads, automatic export discovery, legacy extraction, and append cursors are not supported. Desktop exports have not been tested.
+
 ## 0.5.1 — 2026-10-28
 
 ### Changed

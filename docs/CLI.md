@@ -184,8 +184,11 @@ agent-jsonl-compact view -i /path/rollout.jsonl --after-cursor 'c1:...' --output
 | 注意 | ページの途中ではappend cursorは出ない | 未検査の行を飛ばして先へ進まない |
 
 OpenCode v2 exportは固定JSONとして扱うため、append cursorを発行しません。page cursorは
-ファイル全体のSHA-256・長さ・要素start・`raw_line`・subeventを検証し、置換・短縮・同一長変更・
-再exportを `cursor_invalid` で拒否します。再開のたびにファイル全体を読み直すコストがあります。
+ファイル全体のSHA-256・長さ・要素の開始位置・`raw_line`・`subevent_index` を検証します。
+ファイルの置換・短縮・同じ長さでの内容変更を `cursor_invalid` で拒否するため、
+再エクスポートでファイルが変わった場合は先頭から読み直してください。
+再開のたびにファイル全体を読み直します。カーソルが指す要素も `--max-record-bytes` の対象です。
+検証に必要な上限が足りない場合は `cursor_invalid` となるので、上限を引き上げて再試行してください。
 
 - カーソルは発行時のフィルター、クエリ、表示範囲と、searchの `--context` を保持します。
   再開時に条件を省略すると、カーソル内の値を使います。同じ値の指定も可能です。

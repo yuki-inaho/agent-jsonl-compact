@@ -24,6 +24,14 @@ Codexは実装タグを更新したとき、Claude CodeはCLI更新後、OpenCod
 | OpenCode run | `run --format json` の NDJSON、sessionID、part の text・reasoning・tool_use / tool_output | run JSONL に含まれないユーザープロンプトやモデル名は補わない。DB は対象外 |
 | OpenCode 2.2.5 export | `info.id` / `info.title`、`messages[*]` の user text、assistant content の text・reasoning・tool、tool state（completed/error/running/streaming）、`time.created`、元JSONのbyte範囲・行・subevent | 未知の message/content type は本文を表示せず件数と位置だけ残す。DB、`sessions` の自動探索、append監視、exportの完全性保証は対象外。全体読取りのため128 MiB上限がある |
 
+OpenCode v2 exportのツールエラーは、出力本文と `state.error.message` の両方を検索できます。
+未知のツール状態は `unknown` とし、結果待ちとは判定しません。未知のツール内容も本文を表示せず、件数と位置を残します。
+
+128 MiBは入力ファイルの上限であり、プロセス全体のメモリ上限ではありません。
+読取り時は元のバイト列に加えて要素の位置一覧を保持し、メタデータ確認やツール対応の走査でも全体を読み直します。
+`info` は2 MiB、`info.id` は512バイトまでです。1要素から生成するイベントは最大256件で、超過は部分結果になります。
+処理中のファイル変更は避けてください。保存済みファイルを読み切っても、元セッションの全履歴が含まれることは保証できません。
+
 `isMeta` は legacy 抽出で `injected` / `origin=framework`、`isCompactSummary` は
 `compacted` / `origin=compaction` として残します。viewer はこれらを hard scope から除外します。
 抽出は閲覧と同じ除外規則を適用しないため、reasoning・内部指示・圧縮済み文が成果物に残り得ます。

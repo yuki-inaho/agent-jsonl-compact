@@ -1,4 +1,4 @@
-//! T1–T11: OpenCode v2 session-export acceptance tests.
+//! OpenCode v2 session-export acceptance tests and boundary regressions.
 //!
 //! The official export is one JSON document (`info` + `messages`), not JSONL. All fixtures here
 //! are synthetic and generated in the test; no real session, token, or personal path is read.
@@ -877,6 +877,95 @@ fn t9_invalid_shapes_limits_and_legitimate_empty_are_distinct() {
         meta["counts"]["invalid"]["records"].as_u64().unwrap_or(0) > 0
             || meta["error"]["type"] == "format_invalid"
     );
+}
+
+#[test]
+fn t16_cursor_validation_respects_the_record_limit() {
+    let sandbox = Sandbox::new();
+    let body = export_text(
+        vec![assistant(
+            "m1",
+            vec![text_part(&"x".repeat(400)), text_part("second")],
+            1_700_000_000_000,
+        )],
+        "ses_cursor_limit",
+        true,
+    );
+    let path = write(&sandbox, "cursor-limit.json", &body);
+    let first = ok(
+        &sandbox,
+        &["view", "-i", &path, "--limit", "1", "--output", "jsonl"],
+    );
+    let page = cursor_of(&first);
+    let limited = run(
+        &sandbox,
+        &[
+            "view",
+            "-i",
+            &path,
+            "--max-record-bytes",
+            "100",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(limited.code, 1);
+    let meta = limited.metadata();
+    let retry = meta["counts"]["uninspected"]["samples"][0]["retry_cursor"]
+        .as_str()
+        .unwrap();
+    // Both a retry checkpoint and an intra-message checkpoint require enough budget
+    // to validate their element. Validation must not normalize an oversized record.
+    for token in [page.as_str(), retry] {
+        let rejected = run(
+            &sandbox,
+            &[
+                "view",
+                "-i",
+                &path,
+                "--cursor",
+                token,
+                "--max-record-bytes",
+                "100",
+                "--output",
+                "jsonl",
+            ],
+        );
+        assert_eq!(rejected.code, 1);
+        assert_eq!(rejected.metadata()["error"]["type"], "cursor_invalid");
+        assert!(rejected.events().is_empty());
+    }
+    let resumed = ok(
+        &sandbox,
+        &[
+            "view",
+            "-i",
+            &path,
+            "--cursor",
+            &page,
+            "--max-record-bytes",
+            "10000",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(resumed.events().len(), 1);
+    assert_eq!(resumed.events()[0]["text"], "second");
+    let retried = ok(
+        &sandbox,
+        &[
+            "view",
+            "-i",
+            &path,
+            "--cursor",
+            retry,
+            "--max-record-bytes",
+            "10000",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(retried.events().len(), 2);
 }
 
 // T10 ----------------------------------------------------------------------

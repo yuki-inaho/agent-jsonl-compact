@@ -1949,6 +1949,11 @@ fn validate_cursor(
         if span.raw_line != payload.raw_line {
             return Err(CursorProblem::OffsetOutOfRange);
         }
+        // Match JSONL cursor validation: the caller must raise the record budget before
+        // retrying an oversized element. Do not parse it merely to validate a subevent.
+        if span.byte_end - span.byte_start > max_record_bytes {
+            return Err(CursorProblem::OffsetOutOfRange);
+        }
         let record = RecordSpan {
             raw_line: span.raw_line,
             byte_start: span.byte_start,

@@ -12,6 +12,7 @@ CI・merge・tag・release は時点で変わるため本書では固定せず�
 本書は将来の通過を主張しない。
 初稿時に確認した 0.2.0 の観察（§2 の表）は当時の記録としてそのまま残す。
 実装と検証の対応は §9 にまとめた。
+OpenCode v2 exportへの拡張と、初期要件との違いは §10 に追記した。
 
 ## 1. 何を解決するか
 
@@ -26,7 +27,7 @@ CI・merge・tag・release は時点で変わるため本書では固定せず�
 - **納品範囲**：実利用に基づく要件、優先順位、操作案、受入ケース、改善の検証方法。
 - **次の実装範囲案（MVP）**：session発見、bounded view/search、原文位置、tool対応、cursor差分、既存抽出の互換性。
 - **初期版の対象外**：自動要約LLM、ベクトルDB、常駐daemon、プロセス操作、会話の編集／削除、暗号化reasoningの復元、agentへの指示送信。
-- OpenCodeの既存run JSONLは既存対応を維持する。`view`/`search` は `opencode session export` の単一JSON（v2.2.5）を入力として受け付ける。`opencode.db`、exportの自動探索、legacy抽出への取込みは別要件とする。
+- OpenCodeの既存run JSONLは既存対応を維持する。`opencode.db`やexport単一JSONからの新規取込みは別要件とする。
 
 ## 2. 調査で確認した使われ方
 
@@ -261,7 +262,7 @@ metadataには、filter条件、走査した範囲、取得時の末尾境界、
 | N01 全件非保持 | `SourceReader` は1行ずつ返し、`Runner` は選択 window のみ保持。`scan.coverage` は type cap（64）＋ overflow count。record 上限は入力段階で適用 | 「入力総量に比例しない」ことはコード構造と限定計測で確認したが、あらゆる provider 形状での証明ではない |
 | N02 差分読取り | append cursor は完全行末＋行数＋anchor を保持し、既読 prefix を再読しない（append の read は 579 B / 4 行相当の実測） | 可視範囲外の prefix 書換えは検出しない（append-only 前提） |
 | N03 計測分離 | `scan.read_bytes`（logical 主走査）/ `total_read_bytes` と `read_bytes_breakdown` / wall / peak RSS を別掲。`scripts/benchmark_viewer.py` が input sha256・binary sha256・seed・release/debug・compiler・platform を receipt に残す。cold/warm は不明 | 約 69 MB の合成入力のみ。1 GB 級は未検証。速度の一般化はしない |
-| N04 無書き込み | query 系は cache/index/state file を作らない。`a12_*` が source の bytes・長さ・mtime 不変と HOME への新規ファイル無しを検査 | atime 不変は保証対象外。provider DB は読まない（OpenCode は明示 root の run JSONL と、明示 `-i` のv2 exportのみ） |
+| N04 無書き込み | query 系は cache/index/state file を作らない。`a12_*` が source の bytes・長さ・mtime 不変と HOME への新規ファイル無しを検査 | atime 不変は保証対象外。provider DB は読まない（OpenCode は明示 root の run JSONL のみ） |
 | N05 制御文字・非実行 | text 出力は ESC/OSC/C1 をエスケープ。tool 本文は不透明文字列として保持し実行しない | 端末固有の描画差異までは対象外 |
 
 ### 9.3 決定済みの初期値（第4節の暫定案を確定）
@@ -282,3 +283,18 @@ metadataには、filter条件、走査した範囲、取得時の末尾境界、
 - CI 通過・merge・tag・release の現在状態は本書に固定しない（ADR 0003 が手順と検証項目を定義し、
   実行状況は GitHub Actions / Releases を参照）。
 - 実会話ログでの検証は行っていない。すべて合成 fixture である。
+
+## 10. OpenCode v2 exportへの拡張（2026-11-06）
+
+`view -i FILE` / `search -i FILE` で、OpenCode v2.2.5のCLIが保存する単一JSON
+（`info` と `messages`）を読む。DBへの接続、自動探索、旧抽出、追記監視は対象に含めない。
+会話とツールの記録を既存のイベントへ正規化し、元JSONの要素のバイト範囲・開始行・要素内のイベント位置を返す。
+
+この入力ではN01/N02の低メモリ・差分読取り方式を適用しない。128 MiBを上限に元ファイルと要素の位置一覧を保持し、
+再開時にはファイル全体のSHA-256を確認する。128 MiBはプロセス全体のメモリ上限ではない。
+page cursorのみを発行し、検証対象の要素にも `--max-record-bytes` を適用する。
+未知型・不正な入力・未検査範囲を区別し、元セッションの完全性や読取り中の原子的なsnapshotは保証しない。
+
+`tests/opencode_v2_export_e2e.rs` で判定、会話、ツール、原文位置、ページ継続、不正入力と上限を検査する。
+別途、隔離したOpenCode CLIの合成会話を公式コマンドでエクスポートし、閲覧・検索・ツール対応・全ページを照合した。
+この実測はCLI v2.2.5に限り、Desktopからのエクスポートは未検証である。
