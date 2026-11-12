@@ -202,3 +202,11 @@ agent-jsonl-compact install-skills --codex-only   # または --claude-only
 配置先はClaude CodeとCodex。OpenCodeはスキル配置の対象外。
 既存ファイルは保持する。確認して置き換える場合だけ `--force` を指定する。
 symlinkで登録したスキルは上書きしない。
+
+## 既知の制約（2026-11-12）
+
+- ローカルの `agent-jsonl-compact 0.5.1` は OpenCode v2 export の `search` が
+  `status=partial selected=0` を返し、本文に存在する語（例: `60300152`）を検出できない。
+  `view` も先頭付近だけを返すことがある。この場合は export JSON を Python で読み、
+  `messages[*].text` と `content[*].text` を抽出するフォールバックを使う。
+  抽出結果は `temp/` に置き、生ログを共有しない。
